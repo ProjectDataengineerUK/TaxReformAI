@@ -105,21 +105,28 @@ python3 -m pytest tests/ -v        # roda os 74 testes sem precisar de nenhuma c
 
 Secrets necessários: `GCP_PROJECT_ID`, `GCP_DEPLOYER_SA_KEY` (SA `taxreformai-deployer`, escopada — não reusar `GCP_SA_KEY`, que é do Terraform) e `API_KEYS` (JSON `{"chave":"tenant_id"}`). O `tenant_id` do corpo de `POST /v1/tax/simulate` precisa bater com o da credencial, senão a resposta é **403**.
 
-## Runbook pendente (única coisa que falta — exige credenciais reais)
+## Runbook — o que falta para o primeiro deploy real
 
-Todo o código está commitado e verificado; o que resta são passos de operador que **não podem ser feitos deste sandbox**. Em ordem:
+A infraestrutura de CD **já foi aplicada** (verificado via `gcloud` em 2026-07-24): a SA
+`taxreformai-deployer` e o Artifact Registry `taxreformai` existem no projeto `taxreformai-dev`,
+e o secret `GCP_DEPLOYER_SA_KEY` já está cadastrado. Sobra pouco:
 
-| # | Passo | Onde | Por que importa |
-|---|-------|------|-----------------|
-| 1 | `terraform.yml` com `action=plan` | GitHub Actions | Barato, não cria nada. Confirma se Artifact Registry + SA de deploy já foram aplicados (AT-007) |
-| 2 | `terraform.yml` com `action=apply` | GitHub Actions | Cria o Artifact Registry e a SA `taxreformai-deployer` |
-| 3 | Gerar a chave JSON da SA `taxreformai-deployer` | Console/`gcloud` | É a credencial do passo 4 |
-| 4 | Cadastrar secrets `GCP_DEPLOYER_SA_KEY` e `API_KEYS` | GitHub Secrets | Sem `API_KEYS` o serviço sobe respondendo 401 para tudo — mas **200 em `/healthz`** |
-| 5 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | Primeiro deploy real. Fecha AT-001/002/006 de uma vez se o smoke test passar |
-| 6 | `ingestao.yml` com `fonte=planalto`, `confirm=INGERIR` | GitHub Actions | Escreve em GCS + Qdrant reais. Fecha o critério E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL` |
-| 7 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | Só depois do passo 5 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
+| # | Passo | Onde | Status | Por que importa |
+|---|-------|------|--------|-----------------|
+| 1 | Terraform apply (AR + SA de deploy) | GitHub Actions | ✅ Feito | AR criado 15:40; SA `taxreformai-deployer` existe |
+| 2 | Chave JSON da SA → `GCP_DEPLOYER_SA_KEY` | GitHub Secrets | ✅ Feito | Cadastrado 18:48 |
+| 3 | Secret `API_KEYS` (JSON `{"chave":"tenant_id"}`) | GitHub Secrets | ⬜ | Sem ele o serviço sobe respondendo 401 para tudo — mas **200 em `/healthz`** |
+| 4 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | ⬜ | Primeiro deploy real. Fecha AT-001/002/006 se o smoke test passar |
+| 5 | `ingestao.yml` com `fonte=planalto`, `confirm=INGERIR` | GitHub Actions | ⬜ | Escreve em GCS + Qdrant reais. Fecha o critério E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL` |
+| 6 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | ⬜ | Só depois do passo 4 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
 
-**AT-006 (build real das imagens) nunca foi exercitado**: `docker` não existe neste sandbox. A revisão de código do build original deu os Dockerfiles como corretos e ainda assim havia um `COPY /app/public` sobre um diretório inexistente, que abortaria o build. Trate o passo 5 como a primeira verificação de verdade, não como formalidade.
+Os passos 4 e 5 **gastam dinheiro de verdade** e só rodam por `workflow_dispatch`. O 5 baixa o
+BGE-M3 (~2GB) e tem timeout de 45 min.
+
+**AT-006 (build real das imagens) nunca foi exercitado**: `docker` não existe neste sandbox. A
+revisão de código do build original deu os Dockerfiles como corretos e ainda assim havia um
+`COPY /app/public` sobre um diretório inexistente, que abortaria o build. Trate o passo 4 como a
+primeira verificação de verdade, não como formalidade.
 
 ---
 
