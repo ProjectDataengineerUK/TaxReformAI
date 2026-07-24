@@ -9,7 +9,7 @@
 | **Feature** | PIPELINE_INGESTAO_LEGAL |
 | **Date** | 2026-07-22 |
 | **Author** | define-agent |
-| **Status** | Ready for Design |
+| **Status** | ✅ Shipped (2026-07-24) |
 | **Clarity Score** | 13/15 |
 
 ---
@@ -162,6 +162,7 @@ Os agentes do TaxReform AI (Pesquisador Legal e Extrator de Regras) não têm ho
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-07-22 | define-agent | Versão inicial, extraída de BRAINSTORM_PIPELINE_INGESTAO_LEGAL.md |
+| 1.1 | 2026-07-24 | ship-agent | Shipped e arquivado (com 2 dias de atraso — credenciais GCP/Qdrant resolvidas em 2026-07-24) — ver `SHIPPED_2026-07-24.md` |
 
 ---
 

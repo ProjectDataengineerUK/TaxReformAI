@@ -10,7 +10,7 @@
 | **Date** | 2026-07-22 |
 | **Author** | design-agent |
 | **DEFINE** | [DEFINE_PIPELINE_INGESTAO_LEGAL.md](./DEFINE_PIPELINE_INGESTAO_LEGAL.md) |
-| **Status** | Ready for Build |
+| **Status** | ✅ Shipped (2026-07-24) |
 
 ---
 
@@ -497,6 +497,7 @@ N/A neste ciclo — coleção única no Qdrant sem particionamento físico. O pa
 |---------|------|--------|---------|
 | 1.0 | 2026-07-22 | design-agent | Versão inicial, a partir de DEFINE_PIPELINE_INGESTAO_LEGAL.md |
 | 1.1 | 2026-07-22 | design-agent | Decision 1 revertida de "local-first" para "GCP real desde o MVP" (GCS + Qdrant Cloud), a pedido explícito do usuário. Adicionada abstração `RawStorage` para manter os testes automatizados sem dependência de credenciais reais. File Manifest atualizado (Terraform, `.env.example`, storage module) — 15 → 18 arquivos. |
+| 1.2 | 2026-07-24 | ship-agent | Shipped e arquivado — ver `SHIPPED_2026-07-24.md` |
 
 ---
 

@@ -17,6 +17,9 @@ jobs:
           python-version: "3.12"
           cache: "pip"
 
+      - name: Install poppler-utils (pdftotext — extração de PDF do TCUScraper)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
+
       - name: Install dependencies
         run: pip install -r requirements.txt
 

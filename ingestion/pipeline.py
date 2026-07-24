@@ -1,12 +1,12 @@
 import datetime
 import json
 import logging
-from typing import Protocol
+from typing import Callable, Protocol
 
 from ingestion.chunking.chunk_models import Chunk
 from ingestion.chunking.chunker import gerar_chunks
 from ingestion.embedding.hybrid_embedder import EmbeddedChunk
-from ingestion.parser.ast_models import Secao
+from ingestion.parser.ast_models import Lei, Secao
 from ingestion.parser.ast_parser import ASTParseError, parse_lei
 from ingestion.scraper.planalto_scraper import LegalSource
 
@@ -44,21 +44,25 @@ def executar_pipeline(
     indexer: Indexer,
     data_vigencia_fim: datetime.date | None = None,
     regime: str | None = None,
+    parser: Callable[..., Lei] = parse_lei,
 ) -> dict:
     """Orquestra scraper -> parser -> chunker -> embedder -> indexer.
 
     As dependências (scraper/embedder/indexer) são injetadas para permitir
     testes de integração com fakes/stubs, sem exigir GCP/Qdrant/modelos de
-    ML reais (ver DESIGN, Testing Strategy).
+    ML reais (ver DESIGN, Testing Strategy). `parser` default `parse_lei`
+    (Planalto/HTML); TCU passa `resolucao_parser.parse_resolucao` (ver
+    DESIGN de INGESTAO_TCU_E_ETL_AIRFLOW, Decision 3) — mesma assinatura
+    (texto, documento_id, titulo, fonte_url) -> Lei em ambos os casos.
     """
     resumo = {"documento_id": documento_id, "artigos": 0, "chunks": 0, "chunks_com_erro": 0}
 
     logger.info(json.dumps({"etapa": "scrape", "url": url}))
-    html, raw_uri = scraper.fetch(url, documento_id)
+    conteudo, raw_uri = scraper.fetch(url, documento_id)
     logger.info(json.dumps({"etapa": "scrape", "status": "ok", "raw_uri": raw_uri}))
 
     logger.info(json.dumps({"etapa": "parse", "status": "iniciando"}))
-    lei = parse_lei(html, documento_id=documento_id, titulo=titulo, fonte_url=url)
+    lei = parser(conteudo, documento_id=documento_id, titulo=titulo, fonte_url=url)
     total_artigos = len(lei.artigos_soltos) + sum(_contar_artigos(s) for s in lei.secoes)
     resumo["artigos"] = total_artigos
     logger.info(json.dumps({"etapa": "parse", "status": "ok", "artigos": total_artigos}))

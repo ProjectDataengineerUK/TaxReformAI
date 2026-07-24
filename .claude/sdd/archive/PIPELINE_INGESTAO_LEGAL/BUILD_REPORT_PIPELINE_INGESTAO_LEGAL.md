@@ -127,11 +127,13 @@ tests/test_pipeline_integration.py::test_falha_de_embedding_por_chunk_nao_aborta
 
 ## Blockers
 
-| Blocker | Required Action | Owner |
-|---------|-----------------|-------|
-| `GCP_PROJECT_ID`, `GCS_BUCKET_NAME`, `QDRANT_URL`, `QDRANT_API_KEY` ainda não fornecidos | Preencher `.env` (copiado de `.env.example`) e rodar `terraform apply` em `infra/terraform/` para provisionar o bucket antes da primeira execução real | Usuário |
-| `qdrant-client`, `google-cloud-storage`, `fastembed`, `typer` não puderam ser instalados neste sandbox (`externally-managed-environment`, sem `python3-venv`) | Rodar `pip install -r requirements.txt` (idealmente numa venv — `sudo apt install python3.14-venv` ou `pipx`) num ambiente onde o usuário tenha controle | Usuário |
-| `ingestion/embedding/hybrid_embedder.py` e `ingestion/indexing/qdrant_indexer.py` não foram exercitados contra as libs reais (só revisão de código + testes com fakes) | Após instalar as dependências e configurar `.env`, rodar `python -m ingestion.pipeline run --url ... --documento-id LCP_214_2025 ...` manualmente (teste E2E da Testing Strategy) | Usuário |
+**Atualização 2026-07-24 (pós-auditoria):** os blockers de credenciais abaixo foram resolvidos — `GCP_PROJECT_ID`/`GCS_BUCKET_NAME` são reais (Terraform aplicado, bucket `taxreformai-dev-legal-docs`) e `QDRANT_URL`/`QDRANT_API_KEY` (Qdrant Cloud free tier) também. Todos vivem em GitHub Secrets, não em `.env` local — política do projeto é que infraestrutura real só roda em GCP/CI, nunca localmente (ver `CLAUDE.md`, "Como rodar"). Isso significa que o blocker de *credenciais* está resolvido, mas o de *execução E2E* persiste por um motivo diferente: `qdrant-client`/`google-cloud-storage`/`fastembed` não instalam neste sandbox, e a execução real não pode simplesmente rodar aqui mesmo com credenciais — precisa rodar via `dags/ingestao_legal_dag.py` num Cloud Composer real (feature `INGESTAO_TCU_E_ETL_AIRFLOW`, já shipada) ou um workflow de CI equivalente, nenhum dos dois ainda executado de fato.
+
+| Blocker | Status | Required Action | Owner |
+|---------|--------|-----------------|-------|
+| ~~`GCP_PROJECT_ID`, `GCS_BUCKET_NAME`, `QDRANT_URL`, `QDRANT_API_KEY` ainda não fornecidos~~ | ✅ Resolvido | — | — |
+| `qdrant-client`, `google-cloud-storage`, `fastembed`, `typer` não instaláveis neste sandbox | Ainda bloqueado | Instalar num ambiente com controle (fora deste sandbox) — Cloud Composer/Cloud Run já resolvem isso via imagem própria | Usuário |
+| `ingestion/embedding/hybrid_embedder.py` e `ingestion/indexing/qdrant_indexer.py` nunca exercitados contra libs reais | Ainda pendente | Disparar `dags/ingestao_legal_dag.py` num Cloud Composer real (ou workflow de CI equivalente) — não rodar localmente, mesmo com credenciais disponíveis | Usuário |
 
 ---
 
