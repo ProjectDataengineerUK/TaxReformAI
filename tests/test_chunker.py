@@ -73,3 +73,13 @@ def test_chunk_alinea_tem_dispositivo_granular(chunks):
 def test_pontos_qdrant_tem_id_deterministico_e_unico(chunks):
     ids = [c.qdrant_point_id() for c in chunks]
     assert len(ids) == len(set(ids)), "todo chunk deve gerar um point id único no Qdrant"
+
+
+def test_point_id_e_uuid_valido(chunks):
+    """O Qdrant só aceita inteiro sem sinal ou UUID como id — qualquer outra
+    string é rejeitada com 400 no upsert. Um hexdigest de sha256 passaria em
+    'determinístico e único' e mesmo assim quebraria a ingestão real."""
+    import uuid
+
+    for chunk in chunks:
+        uuid.UUID(chunk.qdrant_point_id())

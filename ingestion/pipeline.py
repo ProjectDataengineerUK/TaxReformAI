@@ -110,6 +110,16 @@ def _build_cli():
 
     app = typer.Typer()
 
+    @app.callback()
+    def _main() -> None:
+        """Pipeline de ingestão legal.
+
+        O callback existe só para forçar o modo multi-comando: um Typer app com
+        um único `@app.command()` e sem callback é achatado, e aí `... pipeline
+        run --url ...` falha com "unexpected extra argument (run)". A invocação
+        documentada (e usada por .github/workflows/ingestao.yml) passa `run`.
+        """
+
     @app.command()
     def run(
         url: str = typer.Option(..., help="URL da lei no Planalto"),

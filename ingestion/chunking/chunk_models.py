@@ -1,6 +1,12 @@
+import uuid
 from datetime import date
 
 from pydantic import BaseModel
+
+# Namespace fixo para os point ids do Qdrant. Não pode mudar: o id é a chave de
+# idempotência da reingestão (mesmo dispositivo → mesmo ponto, sobrescrito em vez
+# de duplicado). Trocar o namespace duplicaria o corpus inteiro na coleção.
+_NAMESPACE_CHUNK = uuid.UUID("6f0a1c3e-7b2d-4e51-9a8f-2c4d6e8b0a13")
 
 
 class Chunk(BaseModel):
@@ -16,6 +22,9 @@ class Chunk(BaseModel):
     fonte_url: str  # URL de origem, para lineage/auditabilidade
 
     def qdrant_point_id(self) -> str:
-        import hashlib
+        """Id determinístico do ponto no Qdrant.
 
-        return hashlib.sha256(f"{self.documento_id}:{self.dispositivo}".encode()).hexdigest()
+        Precisa ser UUID (ou inteiro sem sinal) — o Qdrant rejeita qualquer outra
+        string com 400. Um hexdigest de sha256 parece um id válido, mas não é.
+        """
+        return str(uuid.uuid5(_NAMESPACE_CHUNK, f"{self.documento_id}:{self.dispositivo}"))

@@ -12,6 +12,17 @@ class EmbeddedChunk:
     sparse_values: list[float]
 
 
+@dataclass
+class EmbeddedQuery:
+    """Lado da consulta. Separado de EmbeddedChunk porque uma consulta não tem
+    Chunk de origem — e porque BM25 pondera consulta e documento de formas
+    diferentes (ver embed_consulta)."""
+
+    dense_vector: list[float]
+    sparse_indices: list[int]
+    sparse_values: list[float]
+
+
 class Embedder(Protocol):
     def embed(self, chunks: list[Chunk]) -> list[EmbeddedChunk]: ...
 
@@ -47,3 +58,20 @@ class FastEmbedHybridEmbedder:
                 )
             )
         return resultado
+
+    def embed_consulta(self, texto: str) -> EmbeddedQuery:
+        """Contraparte de `embed()` para o lado da consulta — sem isto,
+        `QdrantIndexer.search_hybrid()` não tinha como ser chamado.
+
+        Usa `query_embed`, não `embed`: no BM25 o vetor esparso de consulta é
+        construído de forma diferente do de documento (sem a ponderação por
+        frequência do documento). Embutir a consulta com `embed()` produziria
+        pontuações esparsas silenciosamente erradas.
+        """
+        dense = next(iter(self._dense_model.query_embed(texto)))
+        sparse = next(iter(self._sparse_model.query_embed(texto)))
+        return EmbeddedQuery(
+            dense_vector=dense.tolist(),
+            sparse_indices=sparse.indices.tolist(),
+            sparse_values=sparse.values.tolist(),
+        )
