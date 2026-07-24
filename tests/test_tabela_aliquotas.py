@@ -13,7 +13,7 @@ def test_2026_retorna_regra_confirmada_com_fonte_legal():
 
     assert regra.aliq_cbs == Decimal("0.009")
     assert regra.aliq_ibs == Decimal("0.001")
-    assert regra.aliq_is == Decimal("0")
+    assert regra.aliq_is == Decimal(0)
     assert regra.confirmado_em_lei is True
     assert regra.fonte_legal
 

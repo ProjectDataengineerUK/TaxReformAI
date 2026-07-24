@@ -49,5 +49,5 @@ def test_fetch_salva_pdf_bruto_no_storage_e_retorna_texto(pdf_bytes, monkeypatch
 
 def test_pdftotext_binario_de_sistema_disponivel():
     """Confirma a premissa da Decision 2 do DESIGN: poppler-utils presente."""
-    resultado = subprocess.run(["pdftotext", "-v"], capture_output=True, text=True)
+    resultado = subprocess.run(["pdftotext", "-v"], capture_output=True, text=True, check=False)
     assert resultado.returncode == 0

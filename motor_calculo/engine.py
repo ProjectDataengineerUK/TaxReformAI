@@ -37,7 +37,7 @@ class TaxCalculatorEngine:
         valor_cbs = (base_iva * regra.aliq_cbs).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         valor_ibs = (base_iva * regra.aliq_ibs).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         total_tributos = valor_cbs + valor_ibs + valor_is
-        valor_liquido = valor_base - (total_tributos if split_payment_active else Decimal("0"))
+        valor_liquido = valor_base - (total_tributos if split_payment_active else Decimal(0))
 
         return ResultadoCalculo(
             valor_base=valor_base,

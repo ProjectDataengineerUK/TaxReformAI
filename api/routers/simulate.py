@@ -32,11 +32,11 @@ def simular(
 
     engine = TaxCalculatorEngine(tabela=tabela)
     itens_detalhados: list[ItemDetalhado] = []
-    valor_bruto_total = Decimal("0")
-    total_cbs = Decimal("0")
-    total_ibs = Decimal("0")
-    total_is = Decimal("0")
-    valor_liquido_total = Decimal("0")
+    valor_bruto_total = Decimal(0)
+    total_cbs = Decimal(0)
+    total_ibs = Decimal(0)
+    total_is = Decimal(0)
+    valor_liquido_total = Decimal(0)
 
     for item in payload.itens:
         valor_base_item = item.valor_unitario * item.quantidade

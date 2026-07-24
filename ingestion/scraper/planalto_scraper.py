@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Protocol
 
 from ingestion.storage.raw_storage import RawStorage
@@ -49,7 +49,7 @@ class PlanaltoScraper:
         else:
             raise RuntimeError(f"Falha ao baixar {url}")
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         path = f"raw/planalto/{documento_id}/{timestamp}.html"
         uri = self._storage.save(path, html.encode("utf-8"))
         return html, uri

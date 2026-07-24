@@ -1,7 +1,8 @@
 import datetime
 import json
 import logging
-from typing import Callable, Protocol
+from collections.abc import Callable
+from typing import Protocol
 
 from ingestion.chunking.chunk_models import Chunk
 from ingestion.chunking.chunker import gerar_chunks

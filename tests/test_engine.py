@@ -39,10 +39,10 @@ def test_at003_split_payment_desativado_nao_retem_valor(engine):
 
 def test_valor_base_invalido_levanta_value_error(engine):
     with pytest.raises(ValueError, match="valor_base deve ser positivo"):
-        engine.calcular(valor_base=Decimal("0"), ano_operacao=2026)
+        engine.calcular(valor_base=Decimal(0), ano_operacao=2026)
 
     with pytest.raises(ValueError, match="valor_base deve ser positivo"):
-        engine.calcular(valor_base=Decimal("-10"), ano_operacao=2026)
+        engine.calcular(valor_base=Decimal(-10), ano_operacao=2026)
 
 
 def test_arredondamento_usa_round_half_up():
@@ -53,13 +53,13 @@ def test_arredondamento_usa_round_half_up():
             return RegraFiscal(
                 fase=fase,
                 aliq_cbs=Decimal("0.08505"),
-                aliq_ibs=Decimal("0"),
-                aliq_is=Decimal("0"),
+                aliq_ibs=Decimal(0),
+                aliq_is=Decimal(0),
                 fonte_legal="teste de arredondamento",
             )
 
     engine = TaxCalculatorEngine(tabela=TabelaCustomizada())
-    resultado = engine.calcular(valor_base=Decimal("100"), ano_operacao=2026)
+    resultado = engine.calcular(valor_base=Decimal(100), ano_operacao=2026)
 
     # 100 * 0.08505 = 8.505 exatamente — ROUND_HALF_UP arredonda para 8.51,
     # diferente do default do Python (ROUND_HALF_EVEN, que daria 8.50)

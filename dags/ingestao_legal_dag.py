@@ -17,7 +17,7 @@
 # real. A lógica de negócio de cada `@task` é só uma chamada fina a
 # `executar_pipeline()` (ingestion/pipeline.py), já testada isoladamente.
 
-from datetime import datetime
+from datetime import UTC, datetime
 
 from airflow.decorators import dag, task
 
@@ -25,7 +25,7 @@ from airflow.decorators import dag, task
 @dag(
     dag_id="ingestao_legal_taxreformai",
     schedule="@weekly",
-    start_date=datetime(2026, 1, 1),
+    start_date=datetime(2026, 1, 1, tzinfo=UTC),
     catchup=False,
     tags=["taxreformai", "ingestion"],
 )

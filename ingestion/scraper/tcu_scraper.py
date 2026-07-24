@@ -1,6 +1,6 @@
 import subprocess
 import tempfile
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from ingestion.storage.raw_storage import RawStorage
 
@@ -25,7 +25,7 @@ class TCUScraper:
     def fetch(self, url: str, documento_id: str) -> tuple[str, str]:
         pdf_bytes = self._baixar_pdf(url)
 
-        timestamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        timestamp = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
         path = f"raw/tcu/{documento_id}/{timestamp}.pdf"
         uri = self._storage.save(path, pdf_bytes)
 

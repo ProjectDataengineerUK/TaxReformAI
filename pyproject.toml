@@ -1,0 +1,10 @@
+[tool.ruff]
+target-version = "py312"
+
+# Sem este arquivo, "ruff check ." muda de comportamento sozinho a cada minor
+# release do ruff (ex: 0.15 -> 0.16 passou a habilitar FURB/PLW/DTZ/RUF012/
+# UP035 por padrão) — o CI pegou 18 erros que o ruff local (0.15.17, sem este
+# arquivo) nunca viu. Fixar aqui é o que torna "ruff check ." reproduzível
+# entre máquinas/versões, não só a versão pinada no CI.
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
