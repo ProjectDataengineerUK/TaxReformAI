@@ -17,7 +17,11 @@
 | `API_HTTP_SIMULACAO` (`api/`) | ✅ Shipado (`.claude/sdd/archive/API_HTTP_SIMULACAO/`) | FastAPI com `POST /v1/tax/simulate` (estruturado, schema da seção 8, integração ERP) e `POST /v1/tax/query` (conversacional, expõe `orquestracao/` via novo `orquestracao/executor.py` — sequencial, sem depender de `langgraph`); auth via `X-API-Key`. Primeira feature sem nenhum blocker de dependência; testada com `uvicorn` real + `curl`, não só testes automatizados |
 | `FRONTEND_SIMULADOR` (`frontend/`) | ✅ Shipado (`.claude/sdd/archive/FRONTEND_SIMULADOR/`) | Next.js 14 (App Router) com `/simulador` (formulário estruturado) e `/consulta` (conversacional), consumindo a API real; API key via `localStorage`. Corrigiu de quebra um bug crítico de CORS em `api/main.py` (a API não tinha `CORSMiddleware` — nenhuma chamada de um navegador real teria funcionado) |
 
-Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU) e a camada ETL real (Airflow, escrita) — **todas as 6 features já shipadas**, `.claude/sdd/features/`/`reports/` vazios. CI/CD (`.github/workflows/ci.yml` roda pytest + testes de frontend a cada push/PR; `terraform.yml` faz plan/apply do GCS via `workflow_dispatch`) provisiona infraestrutura real — o bucket GCS já foi aplicado de verdade (`terraform.tfstate` local confirma). Candidatos para o próximo ciclo: (a) provisionar um Cloud Composer real para finalmente executar `dags/ingestao_legal_dag.py` (desbloqueia a verificação E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL`), (b) **schema PostgreSQL** (seção 7 — multi-tenancy real, audit log, cache de regras), já que a API/frontend atuais só têm auth mínima sem tenant real por trás, ou (c) verificação manual em navegador real (a extensão Claude in Chrome não estava conectada durante o build do frontend).
+Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU) e a camada ETL real (Airflow, escrita) — as 6 primeiras features estão shipadas. A **7ª, `DEPLOY_CLOUD_RUN`, está em build** (`.claude/sdd/features/DEFINE_*` e `DESIGN_*`, `reports/BUILD_REPORT_*`): fecha o CD que havia sido construído fora do SDD e ficara não commitado. Código pronto e verificado; falta a execução do runbook (aplicar o Terraform, gerar a chave da SA de deploy, cadastrar secrets) e o primeiro deploy real.
+
+CI/CD: `ci.yml` roda pytest + testes de frontend a cada push/PR, `terraform.yml` faz plan/apply via `workflow_dispatch`, `deploy.yml` publica no Cloud Run via `workflow_dispatch`, `ingestao.yml` roda a ingestão real + verificação E2E da busca híbrida via `workflow_dispatch` (guarda `INGERIR`). O bucket GCS já foi aplicado de verdade e o state do Terraform agora é remoto (`gs://taxreformai-dev-tfstate`). Candidatos para o ciclo seguinte: (a) **schema PostgreSQL** (seção 7 — multi-tenancy real, audit log, cache de regras); (b) conectar LLMs reais (Vertex AI) — 4 dos 5 nós da orquestração ainda são fake; ou (c) verificação manual em navegador real, agora possível de verdade porque haverá uma URL pública.
+
+> **Duas execuções pendentes, ambas só por `workflow_dispatch` e ambas cobráveis.** Nenhuma foi rodada ainda; o código dos dois caminhos está revisado e verificado até onde este sandbox permite (sem `docker`, sem `typer`, sem `qdrant-client`). Ver "Runbook pendente" no fim deste arquivo.
 
 ## Stack planejada (extraída de `contexto.md`)
 
@@ -52,9 +56,13 @@ TaxReformAI/
 │   ├── regras_fiscais.py       # RegraFiscal + AliquotaNaoDisponivelError
 │   ├── tabela_aliquotas.py      # TabelaAliquotas (Protocol) + seed (só 2026)
 │   └── engine.py                 # TaxCalculatorEngine
-├── infra/terraform/         # Provisionamento do bucket GCS — aplicado de verdade (ver terraform.tfstate local, gitignored)
-├── .github/workflows/        # ci.yml (pytest + testes frontend, a cada push/PR) + terraform.yml (plan/apply via workflow_dispatch)
-├── tests/                    # 72 testes (pytest) cobrindo as cinco features com testes pytest (frontend usa vitest à parte)
+├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo (imports absolutos de motor_calculo/orquestracao/ingestion)
+├── frontend/Dockerfile       # DEPLOY_CLOUD_RUN — multi-stage (deps→builder→runner), Next.js standalone, usuário não-root
+├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic) — o que vai para a imagem; requirements.txt inclui via `-r`
+├── infra/terraform/         # Bucket GCS + Artifact Registry + SA de deploy — state remoto em gs://taxreformai-dev-tfstate
+├── .github/workflows/        # ci.yml (pytest + frontend, a cada push/PR) + terraform.yml + deploy.yml (Cloud Run) + ingestao.yml (ingestão real + verificação E2E) — os 3 últimos só por workflow_dispatch
+├── scripts/                  # verificar_busca_hibrida.py — gabarito derivado do corpus indexado; roda só no ingestao.yml, nunca local
+├── tests/                    # 74 testes (pytest) cobrindo as features com testes pytest (frontend usa vitest à parte)
 ├── .env.example              # Template de variáveis — .env local fica só com config não-sensível (ex: FRONTEND_ORIGINS); credenciais reais vivem em GitHub Secrets
 └── .claude/sdd/               # Documentos do workflow SDD (features/, reports/, archive/)
 ```
@@ -75,16 +83,43 @@ TaxReformAI/
 
 - **Linter:** `ruff` (`ruff check .` — configurado e limpo)
 - **Formatter:** não configurado explicitamente (código segue `ruff format` implicitamente)
-- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (72 testes, todos passando)
+- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (74 testes, todos passando)
 
 ## Como rodar
 
 ```bash
-pip install -r requirements.txt   # qdrant-client, google-cloud-storage, fastembed, typer, apache-airflow não instaláveis neste sandbox — ver BUILD_REPORTs
-python3 -m pytest tests/ -v        # roda os 72 testes sem precisar de nenhuma credencial (usa fakes); exige poppler-utils (pdftotext) no sistema para os testes do TCUScraper
+pip install -r requirements.txt   # set completo (dev/CI); qdrant-client, google-cloud-storage, fastembed, typer, apache-airflow não instaláveis neste sandbox — ver BUILD_REPORTs
+pip install -r requirements-api.txt # só o runtime da API (fastapi/uvicorn/pydantic) — é o que a imagem do Cloud Run instala
+python3 -m pytest tests/ -v        # roda os 74 testes sem precisar de nenhuma credencial (usa fakes); exige poppler-utils (pdftotext) no sistema para os testes do TCUScraper
 ```
 
 **Política do projeto: infraestrutura real nunca roda local.** `.env` local é só para o que os testes fake precisam (hoje, nada de credencial real) — nunca para disparar a pipeline de ingestão contra GCS/Qdrant reais na sua máquina. Credenciais reais (`GCP_PROJECT_ID`, `GCS_BUCKET_NAME`, `GCP_SA_KEY`, `QDRANT_URL`, `QDRANT_API_KEY`) vivem em **GitHub Secrets** do repositório e são consumidas por workflows (`terraform.yml` já aplicou o bucket GCS real; a execução da pipeline de ingestão em si ainda depende de `dags/ingestao_legal_dag.py` rodar num Cloud Composer real, ou de um workflow `workflow_dispatch` equivalente). O motor de cálculo (`motor_calculo/`) não precisa de nenhuma infraestrutura — roda direto, local ou não.
+
+## Deploy (Cloud Run)
+
+`.github/workflows/deploy.yml`, **só por `workflow_dispatch`** (nunca no push) com `target` = `api` | `frontend` | `both` e `confirm` = `DEPLOY`. Publica imagens no Artifact Registry tagueadas pelo SHA do commit e atualiza dois serviços em `southamerica-east1`: `taxreformai-api` e `taxreformai-frontend`.
+
+**Ordem importa, por uma dependência circular real:** `NEXT_PUBLIC_API_BASE_URL` é embutida no bundle JS em *build time*, enquanto `FRONTEND_ORIGINS` é lida pela API em *runtime*. O workflow resolve isso lendo as URLs existentes primeiro, deployando a API, buildando o frontend com a URL real da API, e por fim reconciliando o `FRONTEND_ORIGINS` da API (só cria revisão nova se o valor mudou).
+
+**O smoke test reprova o job** — e isso não é redundante: os defaults de `api/main.py` (`FRONTEND_ORIGINS=localhost:3000`) e `api/config.py` (`API_KEYS={}`) fazem um deploy incompleto subir um serviço que responde **200 em `/healthz`** e falha 100% das requisições reais. Por isso o smoke test também faz um `POST /v1/tax/simulate` com chave real e confere o header `access-control-allow-origin`.
+
+Secrets necessários: `GCP_PROJECT_ID`, `GCP_DEPLOYER_SA_KEY` (SA `taxreformai-deployer`, escopada — não reusar `GCP_SA_KEY`, que é do Terraform) e `API_KEYS` (JSON `{"chave":"tenant_id"}`). O `tenant_id` do corpo de `POST /v1/tax/simulate` precisa bater com o da credencial, senão a resposta é **403**.
+
+## Runbook pendente (única coisa que falta — exige credenciais reais)
+
+Todo o código está commitado e verificado; o que resta são passos de operador que **não podem ser feitos deste sandbox**. Em ordem:
+
+| # | Passo | Onde | Por que importa |
+|---|-------|------|-----------------|
+| 1 | `terraform.yml` com `action=plan` | GitHub Actions | Barato, não cria nada. Confirma se Artifact Registry + SA de deploy já foram aplicados (AT-007) |
+| 2 | `terraform.yml` com `action=apply` | GitHub Actions | Cria o Artifact Registry e a SA `taxreformai-deployer` |
+| 3 | Gerar a chave JSON da SA `taxreformai-deployer` | Console/`gcloud` | É a credencial do passo 4 |
+| 4 | Cadastrar secrets `GCP_DEPLOYER_SA_KEY` e `API_KEYS` | GitHub Secrets | Sem `API_KEYS` o serviço sobe respondendo 401 para tudo — mas **200 em `/healthz`** |
+| 5 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | Primeiro deploy real. Fecha AT-001/002/006 de uma vez se o smoke test passar |
+| 6 | `ingestao.yml` com `fonte=planalto`, `confirm=INGERIR` | GitHub Actions | Escreve em GCS + Qdrant reais. Fecha o critério E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL` |
+| 7 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | Só depois do passo 5 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
+
+**AT-006 (build real das imagens) nunca foi exercitado**: `docker` não existe neste sandbox. A revisão de código do build original deu os Dockerfiles como corretos e ainda assim havia um `COPY /app/public` sobre um diretório inexistente, que abortaria o build. Trate o passo 5 como a primeira verificação de verdade, não como formalidade.
 
 ---
 
@@ -118,4 +153,4 @@ python3 -m pytest tests/ -v        # roda os 72 testes sem precisar de nenhuma c
 
 ---
 
-_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn` (mascarado por estarem instalados globalmente neste sandbox); `gh run list` mostrava falha nos dois runs anteriores e ninguém tinha checado. CI está verde pela primeira vez desde que foi criado._
+_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn` (mascarado por estarem instalados globalmente neste sandbox); `gh run list` mostrava falha nos dois runs anteriores e ninguém tinha checado. CI está verde pela primeira vez desde que foi criado. Revisão pós-build de `DEPLOY_CLOUD_RUN` (mesmo dia) varreu o que o build não cobria (`ingestao.yml`, `scripts/`, os dois Dockerfiles) e achou 4 defeitos reais — 3 deles quebrariam a primeira execução cobrável na nuvem: point id do Qdrant que não era UUID, CLI `typer` achatada rejeitando o próprio comando documentado, e `COPY /app/public` sobre diretório inexistente. Ver a seção "Revisão pós-build" em `.claude/sdd/reports/BUILD_REPORT_DEPLOY_CLOUD_RUN.md`._
