@@ -1,0 +1,19 @@
+# Contexto de build do api/Dockerfile é a raiz do repo — mantém a imagem
+# enxuta excluindo tudo que a API não importa em runtime.
+.git/
+.claude/
+.github/
+frontend/
+tests/
+dags/
+infra/
+contexto.md
+CLAUDE.md
+*.md
+.env
+.env.example
+__pycache__/
+*.pyc
+.pytest_cache/
+raw/
+*.egg-info/

@@ -1,0 +1,227 @@
+name: Deploy Cloud Run
+
+# Nunca dispara automaticamente: deploy cria recursos cobráveis e sobe código
+# para a internet. Mesmo padrão de guarda explícita já usado por terraform.yml.
+on:
+  workflow_dispatch:
+    inputs:
+      target:
+        description: "O que deployar"
+        required: true
+        default: "both"
+        type: choice
+        options:
+          - both
+          - api
+          - frontend
+      confirm:
+        description: 'Digite exatamente "DEPLOY" para confirmar'
+        required: true
+        default: ""
+
+env:
+  REGION: southamerica-east1
+  SERVICE_API: taxreformai-api
+  SERVICE_FRONTEND: taxreformai-frontend
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guarda de confirmação
+        if: ${{ inputs.confirm != 'DEPLOY' }}
+        run: |
+          echo "confirm != 'DEPLOY'. Nenhuma imagem foi publicada e nenhum serviço alterado."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_DEPLOYER_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Definir repositório de imagens
+        run: |
+          echo "IMAGE_REPO=${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/taxreformai" >> "$GITHUB_ENV"
+
+      - name: Autenticar Docker no Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
+
+      # Passo 0: resolve as URLs que já existem. Tolera "not found" porque no
+      # bootstrap nenhum dos dois serviços existe ainda (ver DESIGN, Decisão 1).
+      - name: Resolver URLs existentes
+        id: urls
+        run: |
+          resolver_url() {
+            gcloud run services describe "$1" \
+              --region="$REGION" --format='value(status.url)' 2>/dev/null || true
+          }
+          echo "api=$(resolver_url "$SERVICE_API")" >> "$GITHUB_OUTPUT"
+          echo "frontend=$(resolver_url "$SERVICE_FRONTEND")" >> "$GITHUB_OUTPUT"
+
+      - name: Build e push da imagem da API
+        if: ${{ inputs.target == 'api' || inputs.target == 'both' }}
+        run: |
+          docker build -f api/Dockerfile \
+            -t "${IMAGE_REPO}/api:${GITHUB_SHA}" \
+            -t "${IMAGE_REPO}/api:latest" .
+          docker push "${IMAGE_REPO}/api:${GITHUB_SHA}"
+          docker push "${IMAGE_REPO}/api:latest"
+
+      # Deploy sempre pela tag de SHA, nunca :latest — a revisão do Cloud Run
+      # fica rastreável até um commit exato (DESIGN, Decisão 7).
+      - name: Deploy da API
+        if: ${{ inputs.target == 'api' || inputs.target == 'both' }}
+        env:
+          API_KEYS: ${{ secrets.API_KEYS }}
+          FRONTEND_URL_ATUAL: ${{ steps.urls.outputs.frontend }}
+        run: |
+          if [ -z "$API_KEYS" ]; then
+            echo "Secret API_KEYS ausente. A API subiria devolvendo 401 para tudo."
+            exit 1
+          fi
+          ORIGINS="${FRONTEND_URL_ATUAL:-http://localhost:3000}"
+          # ^@^ troca o separador de "," para "@": o JSON de API_KEYS contém
+          # vírgulas e seria truncado com o separador padrão do gcloud.
+          gcloud run deploy "$SERVICE_API" \
+            --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
+            --region="$REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --quiet \
+            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}"
+
+      - name: Resolver URL da API
+        id: api_url
+        run: |
+          URL=$(gcloud run services describe "$SERVICE_API" \
+            --region="$REGION" --format='value(status.url)' 2>/dev/null || true)
+          if [ -z "$URL" ]; then
+            echo "Serviço $SERVICE_API não existe. Rode primeiro com target=api ou both —"
+            echo "buildar o frontend agora embutiria http://localhost:8000 no bundle."
+            exit 1
+          fi
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # NEXT_PUBLIC_API_BASE_URL é inlinada no bundle JS em build time
+      # (frontend/lib/api-client.ts), por isso entra como --build-arg e não
+      # como env var de runtime.
+      - name: Build e push da imagem do frontend
+        if: ${{ inputs.target == 'frontend' || inputs.target == 'both' }}
+        env:
+          API_URL: ${{ steps.api_url.outputs.url }}
+        run: |
+          docker build -f frontend/Dockerfile \
+            --build-arg "NEXT_PUBLIC_API_BASE_URL=${API_URL}" \
+            -t "${IMAGE_REPO}/frontend:${GITHUB_SHA}" \
+            -t "${IMAGE_REPO}/frontend:latest" frontend/
+          docker push "${IMAGE_REPO}/frontend:${GITHUB_SHA}"
+          docker push "${IMAGE_REPO}/frontend:latest"
+
+      - name: Deploy do frontend
+        if: ${{ inputs.target == 'frontend' || inputs.target == 'both' }}
+        run: |
+          gcloud run deploy "$SERVICE_FRONTEND" \
+            --image="${IMAGE_REPO}/frontend:${GITHUB_SHA}" \
+            --region="$REGION" \
+            --platform=managed \
+            --allow-unauthenticated \
+            --port=8080 \
+            --quiet
+
+      - name: Resolver URL do frontend
+        id: frontend_url
+        run: |
+          URL=$(gcloud run services describe "$SERVICE_FRONTEND" \
+            --region="$REGION" --format='value(status.url)' 2>/dev/null || true)
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # Passo 3: no bootstrap a API foi deployada antes de o frontend existir,
+      # então FRONTEND_ORIGINS ficou no default localhost. Compara antes de
+      # atualizar para não gerar uma revisão nova a cada deploy.
+      - name: Reconciliar CORS da API
+        env:
+          FRONTEND_URL: ${{ steps.frontend_url.outputs.url }}
+        run: |
+          if [ -z "$FRONTEND_URL" ]; then
+            echo "Frontend ainda não existe — nada a reconciliar."
+            exit 0
+          fi
+          ATUAL=$(gcloud run services describe "$SERVICE_API" --region="$REGION" --format=json \
+            | jq -r '.spec.template.spec.containers[0].env[]? | select(.name=="FRONTEND_ORIGINS") | .value')
+          if [ "$ATUAL" != "$FRONTEND_URL" ]; then
+            echo "CORS desatualizado ('$ATUAL' != '$FRONTEND_URL') — reconciliando."
+            gcloud run services update "$SERVICE_API" --region="$REGION" --quiet \
+              --update-env-vars="FRONTEND_ORIGINS=${FRONTEND_URL}"
+          else
+            echo "CORS já correto — nenhuma revisão nova."
+          fi
+
+      # /healthz sozinho passaria nos dois modos de falha que mais preocupam
+      # (API_KEYS ausente, FRONTEND_ORIGINS errada), por isso as 4 asserções.
+      - name: Smoke test
+        env:
+          API_KEYS: ${{ secrets.API_KEYS }}
+          API_URL: ${{ steps.api_url.outputs.url }}
+          FRONTEND_URL: ${{ steps.frontend_url.outputs.url }}
+        run: |
+          set -euo pipefail
+
+          curl -fsS --max-time 20 "${API_URL}/healthz" > /dev/null
+          echo "OK healthz"
+
+          CHAVE=$(echo "$API_KEYS" | jq -r 'keys[0]')
+          TENANT=$(echo "$API_KEYS" | jq -r --arg k "$CHAVE" '.[$k]')
+          HTTP=$(curl -sS -o /tmp/sim.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-1\",\"ncm\":\"22030000\",\"quantidade\":1,
+                             \"valor_unitario\":\"100.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"RJ\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate devolveu $HTTP (esperado 200)."
+            echo "401 => secret API_KEYS não chegou; 403 => tenant_id divergente."
+            cat /tmp/sim.json
+            exit 1
+          fi
+          echo "OK simulate"
+
+          if [ -n "$FRONTEND_URL" ]; then
+            # `|| true` é essencial: quando a origem é recusada não existe header
+            # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script
+            # aqui — reprovando o job sem imprimir o diagnóstico abaixo.
+            ACAO=$(curl -sS -D - -o /dev/null --max-time 20 \
+              -X OPTIONS "${API_URL}/v1/tax/simulate" \
+              -H "Origin: ${FRONTEND_URL}" \
+              -H 'Access-Control-Request-Method: POST' \
+              | grep -i '^access-control-allow-origin:' | tr -d '\r' | awk '{print $2}' || true)
+            if [ "$ACAO" != "$FRONTEND_URL" ]; then
+              echo "FALHA CORS: recebido '$ACAO', esperado '$FRONTEND_URL'."
+              echo "O frontend deployado não conseguiria chamar a API."
+              exit 1
+            fi
+            echo "OK cors"
+
+            curl -fsS --max-time 30 "${FRONTEND_URL}/" > /dev/null
+            echo "OK frontend"
+          fi
+
+      - name: Resumo
+        if: always()
+        env:
+          API_URL: ${{ steps.api_url.outputs.url }}
+          FRONTEND_URL: ${{ steps.frontend_url.outputs.url }}
+        run: |
+          {
+            echo "### Deploy Cloud Run"
+            echo ""
+            echo "| Item | Valor |"
+            echo "|------|-------|"
+            echo "| Target | \`${{ inputs.target }}\` |"
+            echo "| Commit | \`${GITHUB_SHA}\` |"
+            echo "| API | ${API_URL:-—} |"
+            echo "| Frontend | ${FRONTEND_URL:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"

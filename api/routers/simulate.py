@@ -22,6 +22,19 @@ router = APIRouter(prefix="/v1/tax", tags=["simulate"])
 def simular(
     payload: PayloadSimulacao, tenant_id: str = Depends(verificar_api_key)
 ) -> RespostaSimulacao:
+    # A credencial é a autoridade sobre o tenant; o tenant_id do corpo existe
+    # por exigência do contrato com ERPs (blueprint, seção 8.1). Sem esta
+    # checagem, um cliente autenticado poderia simular declarando o tenant de
+    # outro — inofensivo hoje (nada é persistido), mas uma falha real de
+    # multi-tenancy assim que o schema PostgreSQL (seção 7) existir.
+    # A mensagem não ecoa o tenant autenticado, para não vazar quem é o dono
+    # da chave a quem apenas a possui.
+    if payload.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tenant_id do payload não corresponde à credencial autenticada",
+        )
+
     tabela = TabelaAliquotasSeed()
     try:
         regra = tabela.buscar(fase_para(payload.ano_operacao))

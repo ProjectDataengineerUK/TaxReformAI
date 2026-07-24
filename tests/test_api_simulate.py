@@ -5,20 +5,23 @@ from api.config import ApiSettings, get_settings
 from api.main import app
 
 CHAVE_VALIDA = "chave-teste-valida"
+# Mesmo tenant do exemplo da seção 8.1 do blueprint — a chave de API precisa
+# mapear para ele, já que a rota agora exige que payload e credencial batam.
+TENANT_VALIDO = "c39a8281-9b1a-4d2c-8822-123456789abc"
 
 
 @pytest.fixture
 def client():
     app.dependency_overrides[get_settings] = lambda: ApiSettings(
-        api_keys_to_tenant={CHAVE_VALIDA: "tenant-a"}
+        api_keys_to_tenant={CHAVE_VALIDA: TENANT_VALIDO}
     )
     yield TestClient(app)
     app.dependency_overrides.clear()
 
 
-def _payload(ano_operacao=2026, n_itens=1):
+def _payload(ano_operacao=2026, n_itens=1, tenant_id=TENANT_VALIDO):
     return {
-        "tenant_id": "c39a8281-9b1a-4d2c-8822-123456789abc",
+        "tenant_id": tenant_id,
         "ano_operacao": ano_operacao,
         "operacao_tipo": "VENDA_ESTADUAL_B2B",
         "itens": [
@@ -61,6 +64,20 @@ def test_at002_api_key_invalida_retorna_401(client):
         "/v1/tax/simulate", json=_payload(), headers={"X-API-Key": "chave-errada"}
     )
     assert response.status_code == 401
+
+
+def test_tenant_id_do_payload_diferente_da_credencial_retorna_403(client):
+    """Credencial autenticada é a autoridade sobre o tenant. Um cliente válido
+    não pode simular declarando o tenant_id de outro (isolamento multi-tenant)."""
+    response = client.post(
+        "/v1/tax/simulate",
+        json=_payload(tenant_id="tenant-de-outra-empresa"),
+        headers={"X-API-Key": CHAVE_VALIDA},
+    )
+
+    assert response.status_code == 403
+    # A resposta não pode revelar qual é o tenant real por trás da chave.
+    assert TENANT_VALIDO not in response.text
 
 
 def test_ano_2027_do_exemplo_do_blueprint_retorna_422_nao_numeros_inventados(client):

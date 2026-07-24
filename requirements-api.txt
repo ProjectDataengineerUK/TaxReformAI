@@ -1,0 +1,13 @@
+# Dependências de runtime do serviço da API (api/) — usado por api/Dockerfile.
+#
+# Mantenha esta lista mínima: é o que vai para a imagem de produção do Cloud Run.
+# Rastreado a partir dos imports reais de api/, orquestracao/ e motor_calculo/.
+# O único acoplamento com ingestion/ é ingestion.chunking.chunk_models.Chunk,
+# um modelo Pydantic puro (todos os __init__.py do caminho estão vazios), então
+# nada de qdrant-client/fastembed/google-cloud-storage é necessário aqui.
+#
+# requirements.txt inclui este arquivo via `-r`, então as duas listas não podem
+# divergir: adicionar algo aqui é suficiente para o CI também instalar.
+fastapi>=0.115
+uvicorn>=0.30
+pydantic>=2.7
