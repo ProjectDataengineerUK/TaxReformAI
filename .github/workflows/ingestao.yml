@@ -18,6 +18,7 @@ on:
           - planalto
           - tcu
           - cgibs
+          - rfb
           - todas
           - nenhuma
       recriar_colecao:
@@ -139,6 +140,32 @@ jobs:
             --titulo "Resolução CGIBS 6/2026 — Regulamenta o IBS" \
             --esfera "SUBNACIONAL_IBS" \
             --data-vigencia-inicio "2026-04-30"
+
+      # Quarta fonte: Soluções de Consulta da RFB (SIJUT2), ementas apenas.
+      # O texto integral mora numa SPA cuja API responde 403 e é construída em
+      # torno de autenticação com certificado digital; a ementa é pública, é o
+      # resumo vinculante do ato e traz número, órgão e data — citação
+      # auditável por si só.
+      # O termo é estreito de propósito: a busca casa palavras soltas
+      # ("reforma tributária" devolve 463 atos) e resultados acima do tamanho
+      # de página vêm truncados. O parser falha alto nesse caso em vez de
+      # ingerir um recorte parcial.
+      - name: Executar pipeline de ingestão (RFB — Soluções de Consulta)
+        if: ${{ inputs.fonte == 'rfb' || inputs.fonte == 'todas' }}
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          python -m ingestion.pipeline run \
+            --fonte rfb \
+            --termo-busca "Lei Complementar 214, de 2025" \
+            --url "http://normas.receita.fazenda.gov.br/sijut2consulta/consulta.action" \
+            --documento-id "RFB_SC_LCP214" \
+            --titulo "Soluções de Consulta RFB — Lei Complementar 214/2025" \
+            --esfera "FEDERAL_CBS" \
+            --data-vigencia-inicio "2025-01-16"
 
       - name: Verificar busca híbrida
         env:

@@ -4,6 +4,13 @@ from ingestion.chunking.chunk_models import Chunk
 from ingestion.parser.ast_models import Artigo, Inciso, Lei, Paragrafo, Secao
 
 
+# Prefixo do rótulo de dispositivo. "Art." serve para leis e resoluções, mas
+# não para todo tipo de ato: uma Solução de Consulta da RFB citada como
+# "Art. 6006" seria uma citação FALSA, e a citação é o que o produto promete
+# como auditável. Por isso é parâmetro, não literal.
+PREFIXO_ARTIGO_PADRAO = "Art."
+
+
 def _dispositivo_paragrafo(numero_artigo: str, paragrafo: Paragrafo) -> str:
     rotulo = "Parágrafo único" if paragrafo.numero == "único" else f"§{paragrafo.numero}"
     return f"Art. {numero_artigo}, {rotulo}"
@@ -27,6 +34,7 @@ def _chunks_do_artigo(
     data_vigencia_fim: date | None,
     ncm_relacionadas: list[str],
     regime: str | None,
+    prefixo_dispositivo: str = PREFIXO_ARTIGO_PADRAO,
 ) -> list[Chunk]:
     parent_texto = artigo.texto
     chunks: list[Chunk] = []
@@ -47,11 +55,11 @@ def _chunks_do_artigo(
 
     tem_filhos = bool(artigo.paragrafos or artigo.incisos)
     if not tem_filhos:
-        chunks.append(novo_chunk(f"Art. {artigo.numero}", artigo.texto))
+        chunks.append(novo_chunk(f"{prefixo_dispositivo} {artigo.numero}", artigo.texto))
         return chunks
 
     for inciso in artigo.incisos:
-        base = _dispositivo_inciso(f"Art. {artigo.numero}", inciso)
+        base = _dispositivo_inciso(f"{prefixo_dispositivo} {artigo.numero}", inciso)
         if inciso.alineas:
             for alinea in inciso.alineas:
                 chunks.append(
@@ -93,6 +101,7 @@ def gerar_chunks(
     data_vigencia_fim: date | None = None,
     ncm_relacionadas: list[str] | None = None,
     regime: str | None = None,
+    prefixo_dispositivo: str = PREFIXO_ARTIGO_PADRAO,
 ) -> list[Chunk]:
     """Percorre a árvore AST e gera chunks parent-child (Decision 3 do DESIGN).
 
@@ -117,6 +126,7 @@ def gerar_chunks(
                 data_vigencia_fim=data_vigencia_fim,
                 ncm_relacionadas=ncm_relacionadas or [],
                 regime=regime,
+                prefixo_dispositivo=prefixo_dispositivo,
             )
         )
     return chunks

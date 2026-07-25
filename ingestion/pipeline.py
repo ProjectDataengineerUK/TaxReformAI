@@ -46,6 +46,7 @@ def executar_pipeline(
     data_vigencia_fim: datetime.date | None = None,
     regime: str | None = None,
     parser: Callable[..., Lei] = parse_lei,
+    prefixo_dispositivo: str = "Art.",
 ) -> dict:
     """Orquestra scraper -> parser -> chunker -> embedder -> indexer.
 
@@ -75,6 +76,7 @@ def executar_pipeline(
         data_vigencia_inicio=data_vigencia_inicio,
         data_vigencia_fim=data_vigencia_fim,
         regime=regime,
+        prefixo_dispositivo=prefixo_dispositivo,
     )
     resumo["chunks"] = len(chunks)
     logger.info(json.dumps({"etapa": "chunk", "status": "ok", "chunks": len(chunks)}))
@@ -107,7 +109,7 @@ def construir_fonte(
     *,
     timeout_seconds: int = 30,
     max_retries: int = 3,
-) -> tuple[LegalSource, Callable[..., Lei]]:
+) -> tuple[LegalSource, Callable[..., Lei], str]:
     """Mapeia o nome de uma fonte para o par (scraper, parser) que a atende.
 
     Planalto (HTML) e TCU (PDF via pdftotext) têm construtores e parsers de
@@ -119,26 +121,34 @@ def construir_fonte(
     Fora de `_build_cli()` de propósito: assim é testável sem `typer`, que não
     instala neste sandbox.
     """
+    from ingestion.parser.ementa_parser import PREFIXO_DISPOSITIVO, parse_ementas
     from ingestion.parser.resolucao_parser import parse_resolucao
     from ingestion.scraper.cgibs_scraper import CGIBSScraper
     from ingestion.scraper.planalto_scraper import PlanaltoScraper
+    from ingestion.scraper.rfb_scraper import RFBScraper
     from ingestion.scraper.tcu_scraper import TCUScraper
 
-    fontes: dict[str, tuple[type, Callable[..., Lei]]] = {
-        "planalto": (PlanaltoScraper, parse_lei),
-        "tcu": (TCUScraper, parse_resolucao),
+    # (scraper, parser, prefixo do rótulo de dispositivo). O prefixo entra no
+    # registro porque citar uma Solução de Consulta como "Art. 6006" seria uma
+    # citação falsa — e a citação é o que o produto promete como auditável.
+    fontes: dict[str, tuple[type, Callable[..., Lei], str]] = {
+        "planalto": (PlanaltoScraper, parse_lei, "Art."),
+        "tcu": (TCUScraper, parse_resolucao, "Art."),
         # CGIBS é PDF como o TCU, então reaproveita parse_resolucao inteiro.
-        "cgibs": (CGIBSScraper, parse_resolucao),
+        "cgibs": (CGIBSScraper, parse_resolucao, "Art."),
+        # RFB entrega uma página de resultados com muitos atos, não um
+        # documento com hierarquia — daí parser e prefixo próprios.
+        "rfb": (RFBScraper, parse_ementas, PREFIXO_DISPOSITIVO),
     }
     if fonte not in fontes:
         raise ValueError(
             f"Fonte desconhecida: {fonte!r}. Conhecidas: {sorted(fontes)}"
         )
-    classe_scraper, parser = fontes[fonte]
+    classe_scraper, parser, prefixo = fontes[fonte]
     scraper = classe_scraper(
         storage, timeout_seconds=timeout_seconds, max_retries=max_retries
     )
-    return scraper, parser
+    return scraper, parser, prefixo
 
 
 def _build_cli():
@@ -169,9 +179,20 @@ def _build_cli():
         data_vigencia_inicio: str = typer.Option(..., help="YYYY-MM-DD"),
         data_vigencia_fim: str = typer.Option(None, help="YYYY-MM-DD, opcional"),
         regime: str = typer.Option(None),
-        fonte: str = typer.Option("planalto", help="planalto (HTML) | tcu (PDF) | cgibs (PDF)"),
+        fonte: str = typer.Option("planalto", help="planalto | tcu | cgibs | rfb"),
+        termo_busca: str = typer.Option(
+            None,
+            help="Só para --fonte rfb: termo da consulta ao SIJUT2. "
+            "Estreite-o — a busca casa palavras soltas e resultados grandes "
+            "vêm truncados (o parser falha alto nesse caso).",
+        ),
     ) -> None:
         settings = Settings.from_env()
+
+        if fonte == "rfb" and termo_busca:
+            from ingestion.scraper.rfb_scraper import montar_url_busca
+
+            url = montar_url_busca(termo_busca)
 
         from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
         from ingestion.indexing.qdrant_indexer import QdrantIndexer
@@ -181,7 +202,7 @@ def _build_cli():
             bucket_name=settings.gcs_bucket_name, project_id=settings.gcp_project_id
         )
         try:
-            scraper, parser = construir_fonte(
+            scraper, parser, prefixo_dispositivo = construir_fonte(
                 fonte,
                 storage,
                 timeout_seconds=settings.request_timeout_seconds,
@@ -214,6 +235,7 @@ def _build_cli():
                 embedder=embedder,
                 indexer=indexer,
                 parser=parser,
+                prefixo_dispositivo=prefixo_dispositivo,
             )
         except (ASTParseError, RuntimeError) as exc:
             logger.error(json.dumps({"etapa": "pipeline", "erro": str(exc)}))
