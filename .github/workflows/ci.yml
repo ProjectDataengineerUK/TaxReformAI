@@ -9,6 +9,29 @@ on:
 jobs:
   python-tests:
     runs-on: ubuntu-latest
+
+    # PostgreSQL de verdade, efêmero e sem custo. SQLite não serviria: os
+    # testes do schema verificam RLS, JSONB e NUMERIC com precisão, e nenhum
+    # dos três existe lá — passariam contra o banco errado, dando confiança
+    # falsa. Provisionar Cloud SQL só para testar seria pagar por instância
+    # ociosa; ele entra quando for servir tráfego real.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: taxreformai_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/taxreformai_test
+
     steps:
       - uses: actions/checkout@v4
 
