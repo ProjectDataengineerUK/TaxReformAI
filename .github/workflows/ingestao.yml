@@ -36,6 +36,11 @@ jobs:
   ingestao-e-verificacao:
     runs-on: ubuntu-latest
     timeout-minutes: 45
+    # `python scripts/x.py` põe scripts/ no sys.path, não a raiz do repo — os
+    # scripts importam `ingestion.*` e quebrariam com ModuleNotFoundError. Vale
+    # para o job inteiro porque os dois scripts (reset e verificação) precisam.
+    env:
+      PYTHONPATH: ${{ github.workspace }}
     steps:
       - name: Guarda de confirmação
         if: ${{ inputs.confirm != 'INGERIR' }}
