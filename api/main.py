@@ -22,6 +22,14 @@ app.include_router(simulate_router)
 app.include_router(query_router)
 
 
-@app.get("/healthz")
-def healthz() -> dict[str, str]:
+# /health, NÃO /healthz: o Google Front End intercepta o path exato `/healthz`
+# em domínios *.run.app e devolve o próprio 404 em HTML — a requisição nunca
+# chega no contêiner. Verificado contra o serviço real em 2026-07-25:
+#   /foo     -> 404 {"detail":"Not Found"}   (FastAPI, chegou)
+#   /health  -> 404 {"detail":"Not Found"}   (FastAPI, chegou)
+#   /healthz -> 404 <!DOCTYPE html> ...      (Google, NÃO chegou)
+#   /healthz/-> 307                          (a rota existia o tempo todo)
+# Só aparece num deploy real; localmente e nos testes com TestClient passava.
+@app.get("/health")
+def health() -> dict[str, str]:
     return {"status": "ok"}

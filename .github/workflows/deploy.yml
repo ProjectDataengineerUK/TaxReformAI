@@ -167,8 +167,10 @@ jobs:
             echo "CORS já correto — nenhuma revisão nova."
           fi
 
-      # /healthz sozinho passaria nos dois modos de falha que mais preocupam
+      # /health sozinho passaria nos dois modos de falha que mais preocupam
       # (API_KEYS ausente, FRONTEND_ORIGINS errada), por isso as 4 asserções.
+      # O path é /health e não /healthz porque o Google Front End intercepta
+      # `/healthz` em *.run.app e devolve o próprio 404 — ver api/main.py.
       - name: Smoke test
         env:
           API_KEYS: ${{ secrets.API_KEYS }}
@@ -177,8 +179,8 @@ jobs:
         run: |
           set -euo pipefail
 
-          curl -fsS --max-time 20 "${API_URL}/healthz" > /dev/null
-          echo "OK healthz"
+          curl -fsS --max-time 20 "${API_URL}/health" > /dev/null
+          echo "OK health"
 
           CHAVE=$(echo "$API_KEYS" | jq -r 'keys[0]')
           TENANT=$(echo "$API_KEYS" | jq -r --arg k "$CHAVE" '.[$k]')
