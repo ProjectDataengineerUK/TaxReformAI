@@ -15,9 +15,9 @@ sairiam com mojibake.
 
 from ingestion.scraper.planalto_scraper import decodificar_resposta
 
-# "Produção de Bens e Serviços — Imposto Seletivo" em ISO-8859-1.
-TRECHO_LATIN1 = "Produção de Bens e Serviços — Imposto Seletivo".encode("cp1252")
-TRECHO_UTF8 = "Produção de Bens e Serviços — Imposto Seletivo".encode("utf-8")
+_TEXTO = "Produção de Bens e Serviços — Imposto Seletivo"
+TRECHO_LATIN1 = _TEXTO.encode("cp1252")
+TRECHO_UTF8 = _TEXTO.encode()  # utf-8 é o default de str.encode()
 
 
 def test_sem_charset_declarado_bytes_latin1_sao_lidos_corretamente():

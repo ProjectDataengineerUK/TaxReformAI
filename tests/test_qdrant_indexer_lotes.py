@@ -35,7 +35,7 @@ def _garantir_qdrant_models() -> None:
         pass
 
     class PointStruct:
-        def __init__(self, id, vector, payload):  # noqa: A002
+        def __init__(self, id, vector, payload):
             self.id, self.vector, self.payload = id, vector, payload
 
     class SparseVector:

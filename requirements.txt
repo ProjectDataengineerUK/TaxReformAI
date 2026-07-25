@@ -13,5 +13,9 @@ google-cloud-storage>=2.16
 fastembed>=0.3
 typer>=0.12
 
-# Testes
+# Testes e lint. O ruff é PINADO, não >=: cada minor release habilita regras
+# novas por padrão, e um CI com versão diferente da local reprova código que
+# passou aqui. Já aconteceu duas vezes neste projeto. O ci.yml instala só
+# `-r requirements.txt` para que esta seja a única fonte da verdade.
 pytest>=8.0
+ruff==0.16.0
