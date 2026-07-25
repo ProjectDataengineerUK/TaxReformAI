@@ -2,7 +2,9 @@ from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
+from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
+from api.db import get_db_pool
 from api.schemas_simulate import (
     AliquotasAplicadas,
     Compensacao,
@@ -29,7 +31,9 @@ router = APIRouter(prefix="/v1/tax", tags=["simulate"])
 
 @router.post("/simulate", response_model=RespostaSimulacao)
 def simular(
-    payload: PayloadSimulacao, tenant_id: str = Depends(verificar_api_key)
+    payload: PayloadSimulacao,
+    tenant_id: str = Depends(verificar_api_key),
+    db_pool=Depends(get_db_pool),
 ) -> RespostaSimulacao:
     # A credencial é a autoridade sobre o tenant; o tenant_id do corpo existe
     # por exigência do contrato com ERPs (blueprint, seção 8.1). Sem esta
@@ -165,7 +169,7 @@ def simular(
         ),
     )
 
-    return RespostaSimulacao(
+    resposta = RespostaSimulacao(
         ano_operacao=payload.ano_operacao,
         resumo_financeiro=ResumoFinanceiro(
             valor_bruto_total=valor_bruto_total,
@@ -189,3 +193,17 @@ def simular(
         ),
         itens_regime_vigente=itens_regime_vigente,
     )
+
+    registrar_com_seguranca(
+        db_pool,
+        tenant_id,
+        prompt_consulta=f"POST /v1/tax/simulate ano={payload.ano_operacao} "
+        f"operacao={payload.operacao_tipo} itens={len(payload.itens)}",
+        resposta_parecer_md=(
+            f"CBS {total_cbs} + IBS {total_ibs} + IS {total_is} sobre "
+            f"{valor_bruto_total} ({fase.value}). {resposta.compensacao.fonte_legal or ''}"
+        ),
+        payload_calculo=payload.model_dump(mode="json"),
+    )
+
+    return resposta
