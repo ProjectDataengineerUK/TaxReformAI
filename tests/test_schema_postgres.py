@@ -25,22 +25,63 @@ pytestmark = pytest.mark.skipif(
 )
 
 
+PAPEL_APP = "taxreformai_app_teste"
+SENHA_APP = "senha-de-teste"
+
+
+def _preparar_papel_da_aplicacao(admin) -> str:
+    """Cria um papel NÃO-superusuário e devolve a URL para conectar com ele.
+
+    Isto não é firula de teste: superusuários do PostgreSQL **ignoram RLS por
+    completo**, e `FORCE ROW LEVEL SECURITY` só resolve o caso do dono da
+    tabela. Conectar como `postgres` (o default do container do CI, e de muitas
+    instâncias Cloud SQL recém-criadas) faz toda a policy virar decoração — o
+    isolamento entre clientes some sem erro nenhum.
+
+    Testar com o papel privilegiado teria dado 3 falsos verdes e mandado para
+    produção um multi-tenancy que não isola nada.
+    """
+    with admin.cursor() as cur:
+        cur.execute(
+            f"""
+            DO $$ BEGIN
+                IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = '{PAPEL_APP}') THEN
+                    CREATE ROLE {PAPEL_APP} LOGIN PASSWORD '{SENHA_APP}';
+                END IF;
+            END $$
+            """
+        )
+        cur.execute(f"GRANT USAGE ON SCHEMA public TO {PAPEL_APP}")
+        cur.execute(
+            "GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES "
+            f"IN SCHEMA public TO {PAPEL_APP}"
+        )
+    admin.commit()
+    return DATABASE_URL.replace("postgres:postgres@", f"{PAPEL_APP}:{SENHA_APP}@")
+
+
 @pytest.fixture
 def conexao():
     from db.migrador import aplicar_migracoes
 
-    con = psycopg.connect(DATABASE_URL)
-    aplicar_migracoes(con)
+    admin = psycopg.connect(DATABASE_URL)
+    aplicar_migracoes(admin)
+    url_app = _preparar_papel_da_aplicacao(admin)
+    admin.close()
+
+    con = psycopg.connect(url_app)
     yield con
     # Limpa entre testes: RLS impede DELETE sem tenant declarado, então as
     # tabelas com policy precisam de TRUNCATE, que não passa por policy.
-    with con.cursor() as cur:
+    con.close()
+    admin = psycopg.connect(DATABASE_URL)
+    with admin.cursor() as cur:
         cur.execute(
             "TRUNCATE pareceres_audit_log, empresa_skus, "
             "regras_tributarias_cache, tenants CASCADE"
         )
-    con.commit()
-    con.close()
+    admin.commit()
+    admin.close()
 
 
 @pytest.fixture

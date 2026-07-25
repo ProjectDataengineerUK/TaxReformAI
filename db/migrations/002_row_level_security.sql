@@ -30,6 +30,16 @@ CREATE POLICY tenant_isolation ON pareceres_audit_log
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid);
 
+-- ATENÇÃO, requisito de produção: SUPERUSUÁRIOS IGNORAM RLS POR COMPLETO.
+-- `FORCE ROW LEVEL SECURITY` acima resolve apenas o caso do dono da tabela; um
+-- papel superusuário (o `postgres` default de containers e de várias instâncias
+-- Cloud SQL recém-criadas) atravessa toda policy sem erro nenhum. A aplicação
+-- PRECISA conectar com um papel comum, senão este arquivo inteiro é decoração e
+-- o isolamento entre clientes não existe — silenciosamente.
+--
+-- Os testes verificam isso conectando com um papel não-superusuário criado só
+-- para eles; rodá-los como `postgres` produzia 3 falsos verdes.
+
 -- regras_tributarias_cache NÃO tem RLS de propósito: é dado legal público,
 -- igual para todos os tenants. Aplicar isolamento ali obrigaria duplicar a
 -- mesma alíquota por cliente, o que é errado e caro.
