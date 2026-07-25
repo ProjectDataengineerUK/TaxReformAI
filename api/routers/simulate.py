@@ -36,12 +36,26 @@ def simular(
         )
 
     tabela = TabelaAliquotasSeed()
+    fase = fase_para(payload.ano_operacao)
     try:
-        regra = tabela.buscar(fase_para(payload.ano_operacao))
+        regra = tabela.buscar(fase)
     except AliquotaNaoDisponivelError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc
+
+    # Uma fase pode existir na tabela e ainda assim ser parcialmente conhecida
+    # (2027-2028: IBS fixado pelo art. 344, CBS pendente pelo art. 347). O
+    # engine também recusa, mas aqui a recusa vem antes do laço — `regra` é lida
+    # adiante para montar `aliquotas_aplicadas`, e `None * 100` estouraria.
+    indisponiveis = regra.tributos_indisponiveis()
+    if indisponiveis:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(
+                AliquotaNaoDisponivelError(fase, tributos=indisponiveis, regra=regra)
+            ),
+        )
 
     engine = TaxCalculatorEngine(tabela=tabela)
     itens_detalhados: list[ItemDetalhado] = []

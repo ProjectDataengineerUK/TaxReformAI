@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
 from motor_calculo.fases import fase_para
+from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from motor_calculo.tabela_aliquotas import TabelaAliquotas
 
 
@@ -31,6 +32,13 @@ class TaxCalculatorEngine:
 
         fase = fase_para(ano_operacao)
         regra = self._tabela.buscar(fase)
+
+        # Uma fase pode ser parcialmente conhecida (o art. 344 fixa o IBS de
+        # 2027-2028, o art. 347 deixa a CBS pendente). Calcular só o que se sabe
+        # produziria um total silenciosamente subestimado — pior que recusar.
+        indisponiveis = regra.tributos_indisponiveis()
+        if indisponiveis:
+            raise AliquotaNaoDisponivelError(fase, tributos=indisponiveis, regra=regra)
 
         valor_is = (valor_base * regra.aliq_is).quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
         base_iva = valor_base + valor_is
