@@ -5,6 +5,8 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.auth import verificar_api_key
 from api.schemas_simulate import (
     AliquotasAplicadas,
+    Compensacao,
+    EscopoSimulacao,
     ItemDetalhado,
     PayloadSimulacao,
     RespostaSimulacao,
@@ -88,6 +90,20 @@ def simular(
             )
         )
 
+    # Durante a transição os tributos do regime antigo continuam devidos e este
+    # motor não os calcula. Declarar o escopo é o que separa uma projeção
+    # honesta de um número que engana por omissão.
+    escopo = EscopoSimulacao(
+        tributos_incluidos=["CBS", "IBS", "IS"],
+        tributos_nao_incluidos=["PIS", "COFINS", "IPI", "ICMS", "ISS"],
+        advertencia=(
+            "Projeção do IVA Dual isolado. Durante a transição (2026-2033) os tributos "
+            "do regime antigo (PIS, COFINS, IPI, ICMS, ISS) continuam devidos e NÃO "
+            "estão incluídos neste cálculo — o valor líquido não representa a carga "
+            "tributária total da operação."
+        ),
+    )
+
     return RespostaSimulacao(
         ano_operacao=payload.ano_operacao,
         resumo_financeiro=ResumoFinanceiro(
@@ -98,4 +114,9 @@ def simular(
             valor_liquido_projetado_split_payment=valor_liquido_total,
         ),
         itens_detalhados=itens_detalhados,
+        escopo=escopo,
+        compensacao=Compensacao(
+            aplicavel=regra.compensavel,
+            fonte_legal=regra.fonte_legal_compensacao,
+        ),
     )

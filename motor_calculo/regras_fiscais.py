@@ -29,6 +29,12 @@ class RegraFiscal:
     confirmado_em_lei: bool = True
     fontes_por_tributo: Mapping[str, str] = field(default_factory=dict)
 
+    # Se o valor recolhido é compensável com outros tributos no mesmo período.
+    # Em 2026 é — e isso muda o resultado de "custou R$ 1" para "custou zero",
+    # o que faz toda a diferença para quem lê a simulação.
+    compensavel: bool = False
+    fonte_legal_compensacao: str | None = None
+
     def tributos_indisponiveis(self) -> list[str]:
         return [
             nome

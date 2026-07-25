@@ -15,6 +15,8 @@ class ResultadoCalculo:
     total_tributos: Decimal
     valor_liquido: Decimal
     fonte_legal: str
+    compensavel: bool = False
+    fonte_legal_compensacao: str | None = None
 
 
 class TaxCalculatorEngine:
@@ -55,4 +57,6 @@ class TaxCalculatorEngine:
             total_tributos=total_tributos,
             valor_liquido=valor_liquido,
             fonte_legal=regra.fonte_legal,
+            compensavel=regra.compensavel,
+            fonte_legal_compensacao=regra.fonte_legal_compensacao,
         )

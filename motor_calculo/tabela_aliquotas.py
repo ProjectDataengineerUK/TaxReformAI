@@ -30,6 +30,13 @@ class TabelaAliquotasSeed:
                 "CBS 0,9% e IBS 0,1% (alíquota estadual)"
             ),
             confirmado_em_lei=True,
+            compensavel=True,
+            fonte_legal_compensacao=(
+                "LCP 214/2025, art. 348 — o montante recolhido de IBS e CBS em 2026 é "
+                "compensado com o PIS/COFINS devido no mesmo período de apuração; sem "
+                "débitos suficientes, pode ser compensado com qualquer outro tributo "
+                "federal ou ressarcido em até 60 dias"
+            ),
             fontes_por_tributo={
                 "CBS": "LCP 214/2025, art. 346 — 0,9% (nove décimos por cento)",
                 "IBS": "LCP 214/2025, art. 343 — alíquota estadual de 0,1% (um décimo por cento)",

@@ -40,8 +40,34 @@ class ResumoFinanceiro(BaseModel):
     valor_liquido_projetado_split_payment: Decimal
 
 
+class EscopoSimulacao(BaseModel):
+    """Diz o que a simulação inclui e o que NÃO inclui.
+
+    Sem isto a resposta engana por omissão. Durante a transição (2026-2033) as
+    empresas continuam devendo PIS, COFINS, IPI, ICMS e ISS integralmente, e
+    este motor calcula apenas os tributos novos. Um `valor_liquido` de 99,00
+    sobre 100,00 lido por um departamento fiscal parece a carga da operação, e
+    não é — é a projeção do IVA Dual isolado.
+    """
+
+    tributos_incluidos: list[str]
+    tributos_nao_incluidos: list[str]
+    advertencia: str
+
+
+class Compensacao(BaseModel):
+    """Em 2026 o recolhido de CBS/IBS é compensável, o que zera o custo efetivo
+    para quem tem débitos suficientes. Omitir isso faz a simulação superestimar
+    o impacto no caixa em 100% do valor exibido."""
+
+    aplicavel: bool
+    fonte_legal: str | None = None
+
+
 class RespostaSimulacao(BaseModel):
     status: str = "SUCCESS"
     ano_operacao: int
     resumo_financeiro: ResumoFinanceiro
     itens_detalhados: list[ItemDetalhado]
+    escopo: EscopoSimulacao
+    compensacao: Compensacao
