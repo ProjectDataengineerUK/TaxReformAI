@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
@@ -8,12 +8,19 @@ from api.schemas_simulate import (
     Compensacao,
     EscopoSimulacao,
     ItemDetalhado,
+    ItemRegimeVigente,
     PayloadSimulacao,
+    RegimeVigenteResumo,
     RespostaSimulacao,
     ResumoFinanceiro,
 )
 from motor_calculo.engine import TaxCalculatorEngine
 from motor_calculo.fases import fase_para
+from motor_calculo.regime_atual import (
+    TRIBUTOS_INDISPONIVEIS,
+    TabelaPisCofins,
+    icms_interestadual,
+)
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from motor_calculo.tabela_aliquotas import TabelaAliquotasSeed
 
@@ -60,12 +67,23 @@ def simular(
         )
 
     engine = TaxCalculatorEngine(tabela=tabela)
+    tabela_pis_cofins = TabelaPisCofins()
+    regra_pis_cofins = (
+        tabela_pis_cofins.buscar(payload.regime_apuracao)
+        if payload.regime_apuracao is not None
+        else None
+    )
+
     itens_detalhados: list[ItemDetalhado] = []
+    itens_regime_vigente: list[ItemRegimeVigente] = []
     valor_bruto_total = Decimal(0)
     total_cbs = Decimal(0)
     total_ibs = Decimal(0)
     total_is = Decimal(0)
     valor_liquido_total = Decimal(0)
+    total_pis = Decimal(0) if regra_pis_cofins else None
+    total_cofins = Decimal(0) if regra_pis_cofins else None
+    total_icms_interestadual = Decimal(0)
 
     for item in payload.itens:
         valor_base_item = item.valor_unitario * item.quantidade
@@ -90,16 +108,59 @@ def simular(
             )
         )
 
-    # Durante a transição os tributos do regime antigo continuam devidos e este
-    # motor não os calcula. Declarar o escopo é o que separa uma projeção
-    # honesta de um número que engana por omissão.
+        icms = icms_interestadual(
+            item.uf_origem, item.uf_destino, bem_importado=item.bem_importado
+        )
+        total_icms_interestadual += (icms.aliquota * valor_base_item).quantize(
+            Decimal("0.01"), rounding=ROUND_HALF_UP
+        )
+        item_regime = ItemRegimeVigente(
+            sku=item.sku,
+            icms_interestadual_percentual=icms.aliquota * 100,
+            fonte_legal_icms=icms.fonte_legal,
+        )
+        if regra_pis_cofins is not None:
+            # Mesma disciplina de arredondamento do engine (ROUND_HALF_UP,
+            # centavos) — inconsistência aqui seria erro de cálculo silencioso
+            # num sistema financeiro, mesmo que pequeno por item.
+            valor_pis_item = (valor_base_item * regra_pis_cofins.aliq_pis).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            valor_cofins_item = (valor_base_item * regra_pis_cofins.aliq_cofins).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_pis += valor_pis_item
+            total_cofins += valor_cofins_item
+            item_regime = item_regime.model_copy(
+                update={
+                    "pis_percentual": regra_pis_cofins.aliq_pis * 100,
+                    "cofins_percentual": regra_pis_cofins.aliq_cofins * 100,
+                    "fonte_legal_pis": regra_pis_cofins.fonte_legal_pis,
+                    "fonte_legal_cofins": regra_pis_cofins.fonte_legal_cofins,
+                }
+            )
+        itens_regime_vigente.append(item_regime)
+
+    # Durante a transição os tributos do regime antigo continuam devidos. O
+    # escopo é dinâmico porque PIS/COFINS entram quando regime_apuracao é
+    # informado — declarar um escopo fixo voltaria a esconder o que a
+    # resposta de fato contém.
+    tributos_incluidos = ["CBS", "IBS", "IS", "ICMS_INTERESTADUAL"]
+    tributos_nao_calculados = list(TRIBUTOS_INDISPONIVEIS)
+    if regra_pis_cofins is not None:
+        tributos_incluidos.extend(["PIS", "COFINS"])
+    else:
+        tributos_nao_calculados = ["PIS", "COFINS", *tributos_nao_calculados]
+
     escopo = EscopoSimulacao(
-        tributos_incluidos=["CBS", "IBS", "IS"],
-        tributos_nao_incluidos=["PIS", "COFINS", "IPI", "ICMS", "ISS"],
+        tributos_incluidos=tributos_incluidos,
+        tributos_nao_incluidos=tributos_nao_calculados,
         advertencia=(
-            "Projeção do IVA Dual isolado. Durante a transição (2026-2033) os tributos "
-            "do regime antigo (PIS, COFINS, IPI, ICMS, ISS) continuam devidos e NÃO "
-            "estão incluídos neste cálculo — o valor líquido não representa a carga "
+            "Projeção do IVA Dual (CBS/IBS/IS) mais o regime vigente calculável sem "
+            "dado externo (PIS/COFINS quando regime_apuracao é informado; ICMS "
+            "interestadual). NÃO inclui IPI (tabela TIPI por NCM), ICMS interno nem "
+            "ISS — dependem de legislação estadual/municipal ou tabela sem norma "
+            "federal única para citar; o valor líquido não representa a carga "
             "tributária total da operação."
         ),
     )
@@ -119,4 +180,12 @@ def simular(
             aplicavel=regra.compensavel,
             fonte_legal=regra.fonte_legal_compensacao,
         ),
+        regime_vigente=RegimeVigenteResumo(
+            regime_apuracao=payload.regime_apuracao,
+            total_pis=total_pis,
+            total_cofins=total_cofins,
+            total_icms_interestadual=total_icms_interestadual,
+            tributos_nao_calculados=tributos_nao_calculados,
+        ),
+        itens_regime_vigente=itens_regime_vigente,
     )

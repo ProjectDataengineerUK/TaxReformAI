@@ -86,16 +86,59 @@ def resposta_2026(client):
     )
 
 
-def test_api_declara_que_nao_inclui_os_tributos_do_regime_antigo(resposta_2026):
-    """Durante a transição PIS, COFINS, IPI, ICMS e ISS continuam devidos. Uma
-    resposta que os omite sem dizer engana por omissão."""
+def test_api_declara_escopo_sem_regime_apuracao(resposta_2026):
+    """Sem regime_apuracao informado, PIS/COFINS não são calculados — e o
+    escopo precisa dizer isso, não fingir que não existem."""
     assert resposta_2026.status_code == 200
     escopo = resposta_2026.json()["escopo"]
 
-    assert set(escopo["tributos_incluidos"]) == {"CBS", "IBS", "IS"}
-    for antigo in ("PIS", "COFINS", "IPI", "ICMS", "ISS"):
-        assert antigo in escopo["tributos_nao_incluidos"]
+    assert set(escopo["tributos_incluidos"]) == {"CBS", "IBS", "IS", "ICMS_INTERESTADUAL"}
+    assert "PIS" in escopo["tributos_nao_incluidos"]
+    assert "COFINS" in escopo["tributos_nao_incluidos"]
+    for indisponivel in ("IPI", "ICMS_INTERNO", "ISS"):
+        assert indisponivel in escopo["tributos_nao_incluidos"]
     assert "não representa a carga tributária total" in escopo["advertencia"]
+
+
+def test_api_calcula_icms_interestadual_sempre(resposta_2026):
+    """uf_origem/uf_destino são obrigatórios no payload, então o ICMS
+    interestadual é sempre calculável — sem depender de regime_apuracao."""
+    corpo = resposta_2026.json()
+
+    item = corpo["itens_regime_vigente"][0]
+    assert item["icms_interestadual_percentual"] == "12.00"
+    assert "22/1989" in item["fonte_legal_icms"]
+    assert item["pis_percentual"] is None, "sem regime_apuracao, PIS fica None"
+
+
+def test_api_calcula_pis_cofins_quando_regime_informado(client):
+    resposta = client.post(
+        "/v1/tax/simulate",
+        headers={"X-API-Key": CHAVE},
+        json={
+            "tenant_id": TENANT,
+            "ano_operacao": 2026,
+            "operacao_tipo": "VENDA",
+            "regime_apuracao": "NAO_CUMULATIVO",
+            "itens": [
+                {
+                    "sku": "T-1",
+                    "ncm": "22030000",
+                    "quantidade": 1,
+                    "valor_unitario": "100.00",
+                    "uf_origem": "SP",
+                    "uf_destino": "RJ",
+                }
+            ],
+        },
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    assert "PIS" in corpo["escopo"]["tributos_incluidos"]
+    assert corpo["regime_vigente"]["total_pis"] == "1.65"
+    assert corpo["regime_vigente"]["total_cofins"] == "7.60"
+    assert "10.637" in corpo["itens_regime_vigente"][0]["fonte_legal_pis"]
 
 
 def test_api_informa_a_compensacao_de_2026(resposta_2026):

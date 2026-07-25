@@ -2,6 +2,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field
 
+from motor_calculo.regime_atual import RegimeApuracao
+
 
 class ItemSimulacao(BaseModel):
     sku: str
@@ -10,6 +12,10 @@ class ItemSimulacao(BaseModel):
     valor_unitario: Decimal = Field(gt=0)
     uf_origem: str
     uf_destino: str
+    # Só afeta o ICMS interestadual (Resolução do Senado 13/2012, 4% em vez de
+    # 12%/7%). Default False é a maioria dos casos, não uma estimativa: a
+    # alíquota de 4% só se aplica com este sinal explícito.
+    bem_importado: bool = False
 
 
 class PayloadSimulacao(BaseModel):
@@ -17,6 +23,13 @@ class PayloadSimulacao(BaseModel):
     ano_operacao: int
     operacao_tipo: str
     itens: list[ItemSimulacao] = Field(min_length=1, max_length=100)
+    # Opcional e SEM default de fato: None significa "não informado", não
+    # "presume-se X". PIS/COFINS dependem do regime de apuração da empresa
+    # (Lucro Real ~ não-cumulativo; Lucro Presumido/Simples ~ cumulativo em
+    # regra geral) — advinhar teria a mesma falha que inventar uma alíquota da
+    # reforma. Sem este campo, o PIS/COFINS simplesmente não é calculado, e o
+    # escopo da resposta diz por quê.
+    regime_apuracao: RegimeApuracao | None = None
 
 
 class AliquotasAplicadas(BaseModel):
@@ -64,6 +77,30 @@ class Compensacao(BaseModel):
     fonte_legal: str | None = None
 
 
+class ItemRegimeVigente(BaseModel):
+    """ICMS interestadual é calculado sempre — uf_origem/uf_destino são
+    obrigatórios no payload. PIS/COFINS só quando `regime_apuracao` foi
+    informado; None aqui significa "não calculado", não "zero"."""
+
+    sku: str
+    icms_interestadual_percentual: Decimal
+    fonte_legal_icms: str
+    pis_percentual: Decimal | None = None
+    cofins_percentual: Decimal | None = None
+    fonte_legal_pis: str | None = None
+    fonte_legal_cofins: str | None = None
+
+
+class RegimeVigenteResumo(BaseModel):
+    regime_apuracao: str | None = None
+    total_pis: Decimal | None = None
+    total_cofins: Decimal | None = None
+    total_icms_interestadual: Decimal
+    # Sempre inclui IPI, ICMS_INTERNO, ISS (TRIBUTOS_INDISPONIVEIS); mais
+    # PIS/COFINS quando regime_apuracao não foi informado no payload.
+    tributos_nao_calculados: list[str]
+
+
 class RespostaSimulacao(BaseModel):
     status: str = "SUCCESS"
     ano_operacao: int
@@ -71,3 +108,5 @@ class RespostaSimulacao(BaseModel):
     itens_detalhados: list[ItemDetalhado]
     escopo: EscopoSimulacao
     compensacao: Compensacao
+    regime_vigente: RegimeVigenteResumo
+    itens_regime_vigente: list[ItemRegimeVigente]
