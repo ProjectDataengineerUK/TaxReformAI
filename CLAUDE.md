@@ -30,7 +30,7 @@ CI/CD: `ci.yml` roda pytest + testes de frontend a cada push/PR, `terraform.yml`
 - **Orquestração multi-agente:** LangGraph / CrewAI + Anthropic Claude via Vertex AI (Claude 3.5 Sonnet e Haiku)
 - **Motor determinístico:** Python puro (sandbox), sem LLM, para cálculos de IVA Dual/Split Payment
 - **Banco relacional:** Cloud SQL (PostgreSQL 16)
-- **Banco vetorial:** Qdrant Cloud (busca híbrida densa/esparsa, embeddings BGE-M3 + BM25 esparso)
+- **Banco vetorial:** Qdrant Cloud (busca híbrida densa/esparsa, embeddings `intfloat/multilingual-e5-large` + BM25 esparso — o blueprint pede BGE-M3, mas o `fastembed` não o suporta; ver `ingestion/embedding/hybrid_embedder.py`)
 - **Data lake:** Google Cloud Storage (GCS)
 - **Ingestão/ETL:** Scrapy / Playwright orquestrados via Airflow (Cloud Composer)
 - **Infraestrutura:** GCP — Cloud Run (serverless), Cloud Composer, BigQuery, região `southamerica-east1`
@@ -45,7 +45,7 @@ TaxReformAI/
 │   ├── scraper/               # PlanaltoScraper + TCUScraper (LegalSource)
 │   ├── parser/                 # AST hierárquica (Secao recursiva + Artigo/Parágrafo/Inciso/Alínea) + resolucao_parser.py (PDF/TCU)
 │   ├── chunking/                # Chunk (Pydantic) + chunker parent-child
-│   ├── embedding/                 # Hybrid embedder (BGE-M3 + BM25)
+│   ├── embedding/                 # Hybrid embedder (multilingual-e5-large + BM25)
 │   ├── storage/                    # RawStorage (GCS real + fake para testes)
 │   ├── indexing/                    # QdrantIndexer
 │   └── pipeline.py                   # CLI de orquestração (executar_pipeline, parser injetável)
@@ -128,7 +128,7 @@ deliberadamente **sem role nenhuma** — nem a API nem o frontend acessam GCP em
 | 6 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | ⬜ | Só depois do passo 4 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
 
 Os passos 4 e 5 **gastam dinheiro de verdade** e só rodam por `workflow_dispatch`. O 5 baixa o
-BGE-M3 (~2GB) e tem timeout de 45 min.
+modelo denso (~2GB) e tem timeout de 45 min.
 
 **Dois defeitos só apareceram contra infraestrutura real**, nenhum detectável por lint, teste ou
 revisão de código: (a) Terraform e `deploy.yml` discordavam sobre a identidade de runtime —
@@ -146,7 +146,7 @@ chegar no contêiner — por isso a rota de saúde é `/health`. Detalhes e cara
 | `@brainstorm-agent` | Explorar e refinar decisões de arquitetura ainda em aberto antes de começar a implementar | ✅ Usado nas 6 features shipadas |
 | `@design-agent` | Detalhar a especificação técnica de cada componente antes do build | ✅ Usado nas 6 features shipadas |
 | `@python-developer` | Implementar o motor determinístico e o pipeline de ingestão | ✅ `motor_calculo/` shipado; `ingestion/` (Planalto + TCU) com build completo |
-| `@qdrant-specialist` | Configurar a coleção Qdrant para busca híbrida (densa BGE-M3 + esparsa BM25) | 🔄 Código pronto (`qdrant_indexer.py`); credenciais reais já em GitHub Secrets, ainda não exercitado contra Qdrant Cloud de verdade |
+| `@qdrant-specialist` | Configurar a coleção Qdrant para busca híbrida (densa e5-large + esparsa BM25) | 🔄 Código pronto (`qdrant_indexer.py`); credenciais reais já em GitHub Secrets, ainda não exercitado contra Qdrant Cloud de verdade |
 | `@gcp-data-architect` / `@ai-data-engineer-gcp` | Implementar a infraestrutura GCP (GCS, bucket) | ✅ Terraform aplicado de verdade — bucket `taxreformai-dev-legal-docs` real no projeto `taxreformai-dev` |
 | `@genai-architect` | Desenhar/evoluir a orquestração multi-agente (LangGraph) e o roteamento de modelos Claude (seção 3) | ✅ Grafo shipado com fakes; falta conectar LLMs reais e instalar `langgraph` de verdade |
 | `@airflow-specialist` | Construir as DAGs de scraping do DOU/RFB/Comitê IBS (seção 4.2) — hoje o pipeline roda como CLI simples, não como DAG | 🔄 `dags/ingestao_legal_dag.py` escrito com TaskFlow API real (Planalto + TCU); `apache-airflow` não instala neste sandbox — não executável, só revisão de código até haver Cloud Composer real |

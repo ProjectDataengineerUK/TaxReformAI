@@ -1,6 +1,8 @@
 import os
 from dataclasses import dataclass
 
+from ingestion.embedding.hybrid_embedder import MODELO_DENSO_PADRAO
+
 
 @dataclass(frozen=True)
 class Settings:
@@ -38,7 +40,9 @@ class Settings:
             qdrant_collection_name=os.environ.get(
                 "QDRANT_COLLECTION_NAME", "legislacao_tributaria"
             ),
-            dense_embedding_model=os.environ.get("DENSE_EMBEDDING_MODEL", "BAAI/bge-m3"),
+            dense_embedding_model=os.environ.get(
+                "DENSE_EMBEDDING_MODEL", MODELO_DENSO_PADRAO
+            ),
             chunk_parent_level=os.environ.get("CHUNK_PARENT_LEVEL", "artigo"),
             request_timeout_seconds=int(os.environ.get("REQUEST_TIMEOUT_SECONDS", "30")),
             max_retries=int(os.environ.get("MAX_RETRIES", "3")),

@@ -46,13 +46,13 @@ jobs:
       - name: Instalar dependências
         run: pip install -r requirements.txt
 
-      # fastembed baixa o BGE-M3 (~2GB) na primeira execução; o cache evita
+      # fastembed baixa o modelo denso (~2GB) na primeira execução; o cache evita
       # repetir isso a cada run.
       - name: Cache dos modelos fastembed
         uses: actions/cache@v4
         with:
           path: ~/.cache/fastembed
-          key: fastembed-${{ runner.os }}-bge-m3
+          key: fastembed-${{ runner.os }}-e5-large
 
       - name: Autenticar no GCP
         run: |

@@ -52,7 +52,10 @@ def _falhar(msg: str) -> None:
 def main() -> None:
     from qdrant_client import QdrantClient
 
-    from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
+    from ingestion.embedding.hybrid_embedder import (
+        MODELO_DENSO_PADRAO,
+        FastEmbedHybridEmbedder,
+    )
     from ingestion.indexing.qdrant_indexer import QdrantIndexer
 
     url = os.environ["QDRANT_URL"]
@@ -62,7 +65,7 @@ def main() -> None:
     client = QdrantClient(url=url, api_key=api_key)
     indexer = QdrantIndexer(url=url, api_key=api_key, collection_name=collection)
     embedder = FastEmbedHybridEmbedder(
-        dense_model_name=os.environ.get("DENSE_EMBEDDING_MODEL", "BAAI/bge-m3")
+        dense_model_name=os.environ.get("DENSE_EMBEDDING_MODEL", MODELO_DENSO_PADRAO)
     )
 
     total = client.count(collection_name=collection, exact=True).count
@@ -143,7 +146,7 @@ def main() -> None:
         limit=TOP_K,
     ).points
 
-    print(f"  perna densa (BGE-M3): {len(densos)} resultado(s)")
+    print(f"  perna densa (e5-large): {len(densos)} resultado(s)")
     print(f"  perna esparsa (BM25): {len(esparsos)} resultado(s)")
     falhas_b = 0
     if not densos:

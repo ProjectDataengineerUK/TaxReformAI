@@ -27,11 +27,24 @@ class Embedder(Protocol):
     def embed(self, chunks: list[Chunk]) -> list[EmbeddedChunk]: ...
 
 
-class FastEmbedHybridEmbedder:
-    """Gera vetor denso (BGE-M3) + esparso (BM25) por chunk via `fastembed`
-    (Decision 4 do DESIGN — busca híbrida nativa do Qdrant)."""
+# O blueprint (contexto.md) pede BGE-M3, mas `fastembed` NÃO o suporta: a
+# primeira ingestão real morreu com
+#   ValueError: Model BAAI/bge-m3 is not supported in TextEmbedding
+# BGE-M3 não está em nenhum dos registros de modelo do fastembed (conferido em
+# onnx_embedding.py, pooled_embedding.py e pooled_normalized_embedding.py).
+#
+# intfloat/multilingual-e5-large é o substituto: multilíngue (~100 idiomas,
+# inclui português), e também 1024 dimensões — a coleção do Qdrant não muda.
+# Os modelos E5 exigem prefixos diferentes para documento e consulta, e é
+# justamente por isso que `embed()` e `embed_consulta()` são separados aqui.
+MODELO_DENSO_PADRAO = "intfloat/multilingual-e5-large"
 
-    def __init__(self, dense_model_name: str = "BAAI/bge-m3"):
+
+class FastEmbedHybridEmbedder:
+    """Gera vetor denso (multilingual-e5-large) + esparso (BM25) por chunk via
+    `fastembed` (Decision 4 do DESIGN — busca híbrida nativa do Qdrant)."""
+
+    def __init__(self, dense_model_name: str = MODELO_DENSO_PADRAO):
         from fastembed import SparseTextEmbedding, TextEmbedding
 
         self._dense_model = TextEmbedding(model_name=dense_model_name)
