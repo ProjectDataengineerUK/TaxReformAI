@@ -9,6 +9,14 @@ on:
         description: 'Digite exatamente "MIGRAR" para confirmar'
         required: true
         default: ""
+      verificar_rls:
+        description: "Provar isolamento de RLS contra o banco real após migrar (cria e apaga 2 tenants de teste)"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -81,6 +89,15 @@ jobs:
         run: |
           export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/popular_tenants.py
+
+      # Prova RLS contra o Cloud SQL real, não só infere do diagnóstico de
+      # atributos: cria 2 tenants de teste, grava um parecer para cada,
+      # confirma isolamento, apaga tudo.
+      - name: Verificar isolamento de RLS
+        if: ${{ inputs.verificar_rls == 'sim' }}
+        run: |
+          export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_rls_producao.py
 
       - name: Encerrar o proxy
         if: always()
