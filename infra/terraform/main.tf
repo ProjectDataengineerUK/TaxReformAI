@@ -113,13 +113,28 @@ resource "google_project_iam_member" "deployer_run_admin" {
   depends_on = [google_project_service.run]
 }
 
-# Service Account User escopado só na própria SA de deploy (não no projeto):
-# necessário para o `gcloud run deploy --service-account=taxreformai-deployer@...`
-# rodar o serviço Cloud Run usando essa identidade.
-resource "google_service_account_iam_member" "deployer_sa_user_self" {
-  service_account_id = google_service_account.deployer_sa.name
+# Identidade de RUNTIME dos serviços Cloud Run — deliberadamente sem role nenhuma.
+# Nem a API nem o frontend acessam GCP em runtime: servem HTTP e leem env vars
+# (API_KEYS, FRONTEND_ORIGINS). Sem esta SA, o `gcloud run deploy` cai na SA de
+# compute padrão do projeto (Editor), e rodar os serviços como a própria SA de
+# deploy seria pior ainda — ela tem roles/run.admin, então um contêiner
+# comprometido poderia redeployar os serviços.
+resource "google_service_account" "runtime_sa" {
+  project      = var.project_id
+  account_id   = "taxreformai-runtime"
+  display_name = "TaxReform AI - Runtime dos servicos Cloud Run (sem permissoes)"
+}
+
+# Escopado só na SA de runtime: permite ao deployer fazer
+# `gcloud run deploy --service-account=taxreformai-runtime@...`.
+resource "google_service_account_iam_member" "deployer_actas_runtime" {
+  service_account_id = google_service_account.runtime_sa.name
   role               = "roles/iam.serviceAccountUser"
   member             = "serviceAccount:${google_service_account.deployer_sa.email}"
+}
+
+output "runtime_service_account_email" {
+  value = google_service_account.runtime_sa.email
 }
 
 output "deployer_service_account_email" {

@@ -45,6 +45,11 @@ jobs:
       - name: Definir repositório de imagens
         run: |
           echo "IMAGE_REPO=${REGION}-docker.pkg.dev/${{ secrets.GCP_PROJECT_ID }}/taxreformai" >> "$GITHUB_ENV"
+          # Identidade de runtime dos serviços (sem permissão nenhuma, ver
+          # infra/terraform/main.tf). Sem --service-account o Cloud Run usa a SA
+          # de compute padrão, e a SA de deploy não tem actAs sobre ela — foi
+          # exatamente assim que o primeiro deploy real falhou.
+          echo "RUNTIME_SA=taxreformai-runtime@${{ secrets.GCP_PROJECT_ID }}.iam.gserviceaccount.com" >> "$GITHUB_ENV"
 
       - name: Autenticar Docker no Artifact Registry
         run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
@@ -92,6 +97,7 @@ jobs:
             --allow-unauthenticated \
             --port=8080 \
             --quiet \
+            --service-account="$RUNTIME_SA" \
             --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}"
 
       - name: Resolver URL da API
@@ -130,7 +136,8 @@ jobs:
             --platform=managed \
             --allow-unauthenticated \
             --port=8080 \
-            --quiet
+            --quiet \
+            --service-account="$RUNTIME_SA"
 
       - name: Resolver URL do frontend
         id: frontend_url
