@@ -201,16 +201,33 @@ def test_aliquota_nula_e_aceita_e_volta_como_none(conexao):
 
 
 def test_migracoes_rodam_uma_vez_so(conexao):
+    """Usa conexão de ADMIN, não a da aplicação: migrar cria tabelas, e o papel
+    da aplicação não tem (nem deve ter) esse privilégio. A separação é real —
+    tentar migrar com o papel da app devolve `permission denied for schema
+    public`, que é o comportamento desejado."""
     from db.migrador import aplicar_migracoes, listar_migracoes
 
-    assert aplicar_migracoes(conexao) == [], "fixture já aplicou tudo"
+    admin = psycopg.connect(DATABASE_URL)
+    try:
+        assert aplicar_migracoes(admin) == [], "fixture já aplicou tudo"
 
-    with conexao.cursor() as cur:
-        cur.execute("SELECT count(*) FROM schema_migrations")
-        registradas = cur.fetchone()[0]
-    conexao.commit()
+        with admin.cursor() as cur:
+            cur.execute("SELECT count(*) FROM schema_migrations")
+            registradas = cur.fetchone()[0]
+        admin.commit()
+    finally:
+        admin.close()
 
     assert registradas == len(listar_migracoes())
+
+
+def test_papel_da_aplicacao_nao_pode_criar_tabelas(conexao):
+    """Privilégio mínimo: a aplicação lê e escreve dados, não altera schema.
+    Se ela pudesse migrar, também poderia desligar as policies de RLS."""
+    from db.migrador import aplicar_migracoes
+
+    with pytest.raises(psycopg.errors.InsufficientPrivilege):
+        aplicar_migracoes(conexao)
 
 
 def test_migracoes_ordenam_pelo_prefixo_numerico():
