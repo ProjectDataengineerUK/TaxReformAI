@@ -3,7 +3,6 @@ from datetime import date
 from ingestion.chunking.chunk_models import Chunk
 from ingestion.parser.ast_models import Artigo, Inciso, Lei, Paragrafo, Secao
 
-
 # Prefixo do rótulo de dispositivo. "Art." serve para leis e resoluções, mas
 # não para todo tipo de ato: uma Solução de Consulta da RFB citada como
 # "Art. 6006" seria uma citação FALSA, e a citação é o que o produto promete
