@@ -58,14 +58,20 @@ class RegraTributariaCache:
 def sessao_do_tenant(conexao, tenant_id: UUID):
     """Transação com `app.tenant_id` declarado, para o RLS enxergar o tenant.
 
-    `SET LOCAL` limita o efeito à transação: a variável não vaza para a próxima
-    operação que reusar a mesma conexão de um pool. Sem `LOCAL`, uma conexão
-    devolvida ao pool carregaria o tenant do request anterior — um vazamento
-    entre clientes difícil de reproduzir e fácil de não notar.
+    O escopo é a transação (`is_local=true`): a variável não vaza para a próxima
+    operação que reusar a mesma conexão de um pool. Sem isso, uma conexão
+    devolvida ao pool carregaria o tenant do request anterior — vazamento entre
+    clientes difícil de reproduzir e fácil de não notar.
     """
     try:
         with conexao.cursor() as cur:
-            cur.execute("SET LOCAL app.tenant_id = %s", (str(tenant_id),))
+            # set_config(), não `SET LOCAL app.tenant_id = %s`: SET é comando
+            # utilitário do PostgreSQL e NÃO aceita parâmetro vinculado —
+            # devolve `syntax error at or near "$1"`. Interpolar o UUID na
+            # string seria injeção de SQL num ponto que decide isolamento entre
+            # clientes. set_config é função e aceita parâmetro; o terceiro
+            # argumento `true` é o is_local, equivalente ao LOCAL do SET.
+            cur.execute("SELECT set_config('app.tenant_id', %s, true)", (str(tenant_id),))
             yield cur
         conexao.commit()
     except Exception:
