@@ -1,5 +1,16 @@
 from ingestion.embedding.hybrid_embedder import EmbeddedChunk
 
+# A LCP 214/2025 gera 2547 chunks; num upsert único isso vira um corpo JSON de
+# ~57 MB e a Qdrant Cloud recusa:
+#   {"status":{"error":"JSON payload (57359697 bytes) is larger than allowed"}}
+# Isso só apareceu na primeira ingestão real, depois de 20 minutos embedando —
+# a etapa mais cara do pipeline roda inteira antes de o índice ser tocado.
+#
+# ~22 KB por ponto (1024 floats densos + esparso + payload com o texto do
+# artigo). 100 pontos por lote dá ~2,2 MB, com folga larga sob o limite, sem
+# transformar a ingestão numa sequência de milhares de requisições.
+TAMANHO_LOTE_UPSERT = 100
+
 
 class QdrantIndexer:
     """Conecta na Qdrant Cloud, garante a coleção (named vectors dense+sparse)
@@ -50,7 +61,9 @@ class QdrantIndexer:
         ]
         if not points:
             return 0
-        self._client.upsert(collection_name=self._collection_name, points=points)
+        for inicio in range(0, len(points), TAMANHO_LOTE_UPSERT):
+            lote = points[inicio : inicio + TAMANHO_LOTE_UPSERT]
+            self._client.upsert(collection_name=self._collection_name, points=lote)
         return len(points)
 
     def search_hybrid(self, dense_query: list[float], sparse_indices: list[int], sparse_values: list[float], limit: int = 5):
