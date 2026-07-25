@@ -21,6 +21,32 @@ _HEADERS = {
 }
 
 
+def decodificar_resposta(charset_declarado: str | None, conteudo: bytes) -> str:
+    """Decodifica o corpo respeitando o charset declarado; sem ele, detecta.
+
+    O Planalto declara `charset=iso-8859-1` no **301**, mas a resposta 200 final
+    (após o redirect) não declara charset nenhum. Sem charset o httpx assume
+    UTF-8, e decodificar bytes ISO-8859-1 como UTF-8 substitui todo acento por
+    U+FFFD. Como `fetch()` grava `html.encode("utf-8")`, a corrupção virava
+    permanente: a primeira ingestão real produziu um documento com 35.677
+    caracteres de substituição e ZERO ocorrências de "ç" — num texto jurídico
+    brasileiro de 1 milhão de caracteres.
+
+    UTF-8 estrito é a primeira tentativa justamente porque ele **falha** em
+    bytes latin-1 em vez de corrompê-los em silêncio; cp1252 (superset do
+    latin-1) atende o resto. `errors="replace"` só no último recurso, para não
+    trocar uma falha barulhenta por dado silenciosamente errado.
+    """
+    if charset_declarado:
+        return conteudo.decode(charset_declarado, errors="replace")
+    for encoding in ("utf-8", "cp1252"):
+        try:
+            return conteudo.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    return conteudo.decode("cp1252", errors="replace")
+
+
 class LegalSource(Protocol):
     """Uma fonte legal capaz de baixar o HTML de um documento e salvá-lo via
     RawStorage. PlanaltoScraper é a primeira implementação (Decision 2 do
@@ -55,7 +81,7 @@ class PlanaltoScraper:
                     follow_redirects=True,
                 )
                 response.raise_for_status()
-                html = response.text
+                html = decodificar_resposta(response.charset_encoding, response.content)
                 break
             except httpx.HTTPError as exc:
                 last_error = exc
