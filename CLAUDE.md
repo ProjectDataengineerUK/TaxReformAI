@@ -19,7 +19,35 @@
 
 Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU) e a camada ETL real (Airflow, escrita) — as 6 primeiras features estão shipadas. A **7ª, `DEPLOY_CLOUD_RUN`, foi shipada em 2026-07-25** (`.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) com **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar. A aplicação está pública e funcionando.
 
-CI/CD: `ci.yml` roda pytest + testes de frontend a cada push/PR, `terraform.yml` faz plan/apply via `workflow_dispatch`, `deploy.yml` publica no Cloud Run via `workflow_dispatch`, `ingestao.yml` roda a ingestão real + verificação E2E da busca híbrida via `workflow_dispatch` (guarda `INGERIR`). O bucket GCS já foi aplicado de verdade e o state do Terraform agora é remoto (`gs://taxreformai-dev-tfstate`). Candidatos para o ciclo seguinte: (a) **schema PostgreSQL** (seção 7 — multi-tenancy real, audit log, cache de regras); (b) conectar LLMs reais (Vertex AI) — 4 dos 5 nós da orquestração ainda são fake; ou (c) verificação manual em navegador real, agora possível de verdade porque haverá uma URL pública.
+### Fontes legais ingeridas (verificado em produção, 2026-07-25)
+
+Coleção Qdrant `legislacao_tributaria` com **6866 pontos**; verificação E2E da busca híbrida
+**APROVADA** (Bloco A 5/5, Bloco B 2/2) — o critério pendente desde o ship de
+`PIPELINE_INGESTAO_LEGAL` está fechado.
+
+| Fonte | Documento | Artigos | Chunks |
+|-------|-----------|---------|--------|
+| Planalto (DOU) | LCP 214/2025 | 580 | 3417 |
+| CGIBS | Resolução 6/2026 (regulamenta o IBS) | 617 | 3443 |
+| RFB (SIJUT2) | Soluções de Consulta — ementas | 28 | 28 |
+| TCU | Resolução 388/2026 | 16 | 27 |
+
+Das 4 famílias mapeadas no blueprint (seção 4.1), **3 estão cobertas**: DOU (via Planalto),
+Comitê Gestor do IBS e RFB. Mais o TCU, que não estava mapeado.
+
+**SPED / IBPT — decisão de 2026-07-25: fora do pipeline de ingestão.** São dados **tabulares**
+(NCM → alíquota aproximada, Lei 12.741/2012), não legislação: consulta é por chave exata, não
+semântica, então embedá-los no Qdrant seria a ferramenta errada. Pertencem ao schema PostgreSQL
+(seção 7, `regras_tributarias_cache`), consultados deterministicamente pelo `motor_calculo`.
+Além disso a tabela IBPT exige **cadastro de empresa** e é produto licenciado de um instituto
+privado — não legislação em domínio público como as outras três. É decisão de licenciamento,
+não técnica. A tabela ainda tem vigência de ~2 meses e é reeditada bimestralmente, o que a torna
+um problema de sincronização periódica, não de ingestão documental.
+
+CI/CD: `ci.yml` roda pytest + testes de frontend a cada push/PR, `terraform.yml` faz plan/apply via `workflow_dispatch`, `deploy.yml` publica no Cloud Run via `workflow_dispatch`, `ingestao.yml` roda a ingestão real + verificação E2E da busca híbrida via `workflow_dispatch` (guarda `INGERIR`). O bucket GCS já foi aplicado de verdade e o state do Terraform agora é remoto (`gs://taxreformai-dev-tfstate`). Próximo ciclo: **schema PostgreSQL** (seção 7 — multi-tenancy real, audit log, cache de regras),
+que também é pré-requisito para SPED/IBPT. Depois: conectar LLMs reais (Vertex AI) — 4 dos 5 nós
+da orquestração ainda são fake — e verificação manual em navegador, agora possível porque há URL
+pública.
 
 > **Duas execuções pendentes, ambas só por `workflow_dispatch` e ambas cobráveis.** Nenhuma foi rodada ainda; o código dos dois caminhos está revisado e verificado até onde este sandbox permite (sem `docker`, sem `typer`, sem `qdrant-client`). Ver "Runbook pendente" no fim deste arquivo.
 
