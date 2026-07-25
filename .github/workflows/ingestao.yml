@@ -37,7 +37,10 @@ on:
 jobs:
   ingestao-e-verificacao:
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # 45 min bastavam para uma fonte. Com quatro, os dois documentos grandes
+    # (LCP 214 com 3417 chunks e Resolução CGIBS 6 com 3443) custam ~20 min de
+    # embedding cada, e `fonte=todas` estouraria o limite no meio da execução.
+    timeout-minutes: 90
     # `python scripts/x.py` põe scripts/ no sys.path, não a raiz do repo — os
     # scripts importam `ingestion.*` e quebrariam com ModuleNotFoundError. Vale
     # para o job inteiro porque os dois scripts (reset e verificação) precisam.
