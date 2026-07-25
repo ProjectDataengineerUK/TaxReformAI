@@ -64,7 +64,11 @@ _garantir_qdrant_models()
 
 
 class _Resultado:
-    points: list = []
+    """Resposta vazia de query_points — os testes olham a consulta enviada,
+    não o resultado."""
+
+    def __init__(self):
+        self.points: list = []
 
 
 class FakeQdrantClient:
