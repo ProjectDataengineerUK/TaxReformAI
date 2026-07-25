@@ -4,6 +4,10 @@ terraform {
       source  = "hashicorp/google"
       version = "~> 5.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "~> 3.6"
+    }
   }
 
   backend "gcs" {
@@ -143,4 +147,157 @@ output "deployer_service_account_email" {
 
 output "artifact_registry_repository" {
   value = "${google_artifact_registry_repository.docker_images.location}-docker.pkg.dev/${var.project_id}/${google_artifact_registry_repository.docker_images.repository_id}"
+}
+
+# --- Cloud SQL (PostgreSQL 16) — schema da seção 7 ---
+# Instância mínima: o produto ainda não tem tráfego, e subir tamanho é operação
+# online. Começar grande seria pagar por capacidade ociosa.
+
+resource "google_project_service" "sqladmin" {
+  project            = var.project_id
+  service            = "sqladmin.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_service" "secretmanager" {
+  project            = var.project_id
+  service            = "secretmanager.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_sql_database_instance" "principal" {
+  project          = var.project_id
+  name             = "taxreformai-pg"
+  region           = var.region
+  database_version = "POSTGRES_16"
+
+  # Protege contra `terraform destroy` acidental levar junto a base de dados de
+  # clientes e a trilha de auditoria. Desligar exige edição explícita aqui.
+  deletion_protection = true
+
+  settings {
+    tier              = "db-f1-micro"
+    availability_type = "ZONAL"
+    disk_size         = 10
+    disk_autoresize   = true
+
+    backup_configuration {
+      enabled                        = true
+      point_in_time_recovery_enabled = false # exige tier maior; ZONAL + backup diário basta por ora
+      start_time                     = "06:00"
+    }
+
+    ip_configuration {
+      # IP público SEM redes autorizadas. Parece contraditório, mas é o modelo
+      # padrão e seguro para Cloud Run: sem entradas em authorized_networks,
+      # nenhuma origem da internet abre conexão TCP direta. O acesso acontece
+      # pelo conector do Cloud SQL (socket unix /cloudsql/<connection_name>),
+      # que autentica por IAM e trafega pela rede do Google.
+      #
+      # A alternativa (IP privado ou PSC) exigiria VPC + Serverless VPC Access
+      # ou endpoint PSC — custo e complexidade extras, e o conector nativo do
+      # Cloud Run não fala com PSC puro. Adicionar qualquer CIDR em
+      # authorized_networks aqui expõe a instância à internet.
+      ipv4_enabled = true
+      ssl_mode     = "ENCRYPTED_ONLY"
+    }
+
+    database_flags {
+      # Log de conexões ajuda a auditar quem acessou a base tributária.
+      name  = "log_connections"
+      value = "on"
+    }
+  }
+
+  depends_on = [google_project_service.sqladmin]
+}
+
+resource "google_sql_database" "taxreformai" {
+  project  = var.project_id
+  name     = "taxreformai"
+  instance = google_sql_database_instance.principal.name
+}
+
+# Dois usuários, com privilégios diferentes — a lição mais cara do build do
+# schema. Superusuários do PostgreSQL IGNORAM Row-Level Security por completo;
+# se a aplicação conectasse com o papel administrativo, todo o isolamento entre
+# tenants viraria decoração, sem erro nenhum. O papel da aplicação é criado e
+# rebaixado pela migração 003.
+
+resource "random_password" "pg_admin" {
+  length  = 32
+  special = false # evita escaping em URL de conexão
+}
+
+resource "random_password" "pg_app" {
+  length  = 32
+  special = false
+}
+
+resource "google_sql_user" "admin" {
+  project  = var.project_id
+  name     = "taxreformai_admin"
+  instance = google_sql_database_instance.principal.name
+  password = random_password.pg_admin.result
+}
+
+resource "google_sql_user" "app" {
+  project  = var.project_id
+  name     = "taxreformai_app"
+  instance = google_sql_database_instance.principal.name
+  password = random_password.pg_app.result
+}
+
+# Senhas no Secret Manager, nunca em variável de ambiente do Terraform nem no
+# state em texto plano acessível a quem só precisa deployar.
+resource "google_secret_manager_secret" "pg_app_password" {
+  project   = var.project_id
+  secret_id = "taxreformai-pg-app-password"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "pg_app_password" {
+  secret      = google_secret_manager_secret.pg_app_password.id
+  secret_data = random_password.pg_app.result
+}
+
+resource "google_secret_manager_secret" "pg_admin_password" {
+  project   = var.project_id
+  secret_id = "taxreformai-pg-admin-password"
+
+  replication {
+    auto {}
+  }
+
+  depends_on = [google_project_service.secretmanager]
+}
+
+resource "google_secret_manager_secret_version" "pg_admin_password" {
+  secret      = google_secret_manager_secret.pg_admin_password.id
+  secret_data = random_password.pg_admin.result
+}
+
+# A SA de runtime foi criada deliberadamente sem role nenhuma. Conectar ao
+# Cloud SQL exige exatamente duas: cliente do SQL e leitura do próprio segredo.
+# Continua sendo o mínimo — não ganha acesso a mais nada no projeto.
+resource "google_project_iam_member" "runtime_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.runtime_sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "runtime_le_senha_app" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.pg_app_password.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.runtime_sa.email}"
+}
+
+output "cloudsql_connection_name" {
+  value = google_sql_database_instance.principal.connection_name
 }
