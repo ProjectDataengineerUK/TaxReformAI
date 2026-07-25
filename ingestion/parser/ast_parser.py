@@ -25,7 +25,9 @@ HEADER_RE = re.compile(
 ARTIGO_RE = re.compile(r"^Art\s*\.?\s*(\d+)[ºo°]?(-[A-Z])?\b", re.IGNORECASE)
 PARAGRAFO_NUM_RE = re.compile(r"^§\s*(\d+)[ºo°]?\b")
 PARAGRAFO_UNICO_RE = re.compile(r"^Par[áa]grafo\s+[úu]nico\b", re.IGNORECASE)
-INCISO_RE = re.compile(r"^([IVXLCDM]+)\s*[-–—]\s*")
+# Os três traços são intencionais: texto legal brasileiro alterna hífen, en dash
+# e em dash para separar o inciso do texto, às vezes no mesmo documento.
+INCISO_RE = re.compile(r"^([IVXLCDM]+)\s*[-–—]\s*")  # noqa: RUF001
 ALINEA_RE = re.compile(r"^([a-z])\)\s*")
 
 

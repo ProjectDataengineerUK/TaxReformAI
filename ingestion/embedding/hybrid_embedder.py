@@ -61,7 +61,12 @@ class FastEmbedHybridEmbedder:
         sparse_vectors = list(self._sparse_model.embed(textos))
 
         resultado: list[EmbeddedChunk] = []
-        for chunk, dense, sparse in zip(chunks, dense_vectors, sparse_vectors):
+        # strict=True porque o silêncio seria pior: se os modelos denso e
+        # esparso devolvessem contagens diferentes, o zip truncaria e os chunks
+        # excedentes sumiriam do índice sem erro nenhum. Hoje o pipeline chama
+        # embed([chunk]) com um chunk por vez, então as listas têm tamanho 1 e
+        # isto nunca dispara — é guarda para quando o batch voltar.
+        for chunk, dense, sparse in zip(chunks, dense_vectors, sparse_vectors, strict=True):
             resultado.append(
                 EmbeddedChunk(
                     chunk=chunk,

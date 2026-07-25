@@ -6,5 +6,22 @@ target-version = "py312"
 # UP035 por padrão) — o CI pegou 18 erros que o ruff local (0.15.17, sem este
 # arquivo) nunca viu. Fixar aqui é o que torna "ruff check ." reproduzível
 # entre máquinas/versões, não só a versão pinada no CI.
+# O conjunto de regras é declarado explicitamente. Sem `select`, `ruff check .`
+# usa o default da versão instalada — e o default muda a cada minor release,
+# então CI e máquina local divergem em silêncio. Já quebrou duas vezes aqui: o
+# ruff 0.16 do CI reprovou código que o 0.15 local aprovava. A versão está
+# pinada em requirements.txt; isto fixa o resto.
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",  # default do ruff (pycodestyle essencial + pyflakes)
+    "I",                     # ordenação de imports
+    "UP",                    # sintaxe moderna para o target-version
+    "B",                     # bugbear
+    "BLE",                   # blind except — deliberado em pipeline.py, marcado com noqa
+    "RUF", "DTZ", "FURB", "PLW",
+]
+# `A` (builtins sombreados) fica de fora: só acusaria `id` numa classe falsa de
+# teste, forçando noqa sem ganho real.
+
 [tool.ruff.lint.flake8-bugbear]
 extend-immutable-calls = ["fastapi.Depends", "fastapi.Query", "fastapi.Header"]
