@@ -1,15 +1,32 @@
 -- Privilégio mínimo para o papel com que a aplicação conecta.
 --
--- Esta migração existe por causa da descoberta mais cara do build do schema:
--- superusuários do PostgreSQL IGNORAM Row-Level Security por completo, e
--- `FORCE ROW LEVEL SECURITY` só cobre o dono da tabela. Rodando os testes como
--- `postgres`, as três asserções de isolamento passaram falsamente — os tenants
--- enxergavam as linhas uns dos outros sem erro nenhum.
+-- Escrita originalmente para revogar SUPERUSER/BYPASSRLS/cloudsqlsuperuser de
+-- `taxreformai_app` — a descoberta cara do build do schema foi que
+-- superusuários do PostgreSQL ignoram Row-Level Security por completo, e o
+-- container postgres:16 do CI provou isso (conectar como `postgres` real fazia
+-- as três asserções de isolamento passarem falsamente).
 --
--- No Cloud SQL o usuário `taxreformai_app` é criado pelo Terraform e nasce
--- membro de `cloudsqlsuperuser`. Se ficasse assim, todo o arquivo 002 seria
--- decoração. Aqui ele é rebaixado ao que a aplicação de fato precisa: ler e
--- escrever dados, nunca alterar schema nem desligar policy.
+-- Contra o Cloud SQL real essa migração falhava com "permission denied to
+-- alter role — Only roles with the SUPERUSER attribute may change the
+-- SUPERUSER attribute" (2026-07-25). Diagnóstico contra a instância real:
+--
+--   rolname            rolsuper  rolbypassrls
+--   postgres           false     false
+--   taxreformai_admin  false     false
+--   taxreformai_app    false     false
+--   cloudsqlsuperuser  false     false
+--
+-- NENHUM papel no Cloud SQL — nem `postgres` — é superusuário de verdade nem
+-- tem BYPASSRLS, `cloudsqlsuperuser` inclusive. É assim desde a criação: o
+-- Cloud SQL nunca concede o bit real de SUPERUSER a nenhum papel conectável,
+-- diferente de uma instância PostgreSQL autogerida. A proteção que esta
+-- migração tentava adicionar já é garantida pela plataforma — e é por isso
+-- que tentar reforçá-la esbarra numa checagem do próprio Postgres que exige
+-- ser superusuário de verdade só para confirmar o óbvio.
+--
+-- O que continua aqui é privilégio de OBJETO (GRANT/REVOKE), que é operação
+-- diferente de atributo de papel e não tem essa restrição: a aplicação lê e
+-- escreve dados, nunca altera schema.
 --
 -- Idempotente: pode rodar em base onde o papel ainda não existe (ambientes de
 -- teste criam o próprio) sem falhar.
@@ -17,14 +34,6 @@
 DO $$
 BEGIN
     IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'taxreformai_app') THEN
-        -- Tira o papel de cloudsqlsuperuser, se estiver lá. É essa herança que
-        -- daria BYPASSRLS na prática.
-        IF EXISTS (SELECT FROM pg_roles WHERE rolname = 'cloudsqlsuperuser') THEN
-            EXECUTE 'REVOKE cloudsqlsuperuser FROM taxreformai_app';
-        END IF;
-
-        EXECUTE 'ALTER ROLE taxreformai_app NOSUPERUSER NOCREATEDB NOCREATEROLE NOBYPASSRLS';
-
         EXECUTE 'GRANT USAGE ON SCHEMA public TO taxreformai_app';
         EXECUTE 'GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO taxreformai_app';
         EXECUTE 'GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA public TO taxreformai_app';

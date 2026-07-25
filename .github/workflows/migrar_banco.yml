@@ -68,11 +68,6 @@ jobs:
           echo "Proxy não abriu a porta 5432 em 30s."
           exit 1
 
-      - name: DIAGNÓSTICO TEMPORÁRIO — atributos reais dos papéis
-        run: |
-          export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
-          python scripts/diagnosticar_papeis.py
-
       - name: Aplicar migrações (papel admin)
         run: |
           export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"

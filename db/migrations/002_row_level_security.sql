@@ -30,15 +30,23 @@ CREATE POLICY tenant_isolation ON pareceres_audit_log
     USING (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid)
     WITH CHECK (tenant_id = NULLIF(current_setting('app.tenant_id', TRUE), '')::uuid);
 
--- ATENÇÃO, requisito de produção: SUPERUSUÁRIOS IGNORAM RLS POR COMPLETO.
--- `FORCE ROW LEVEL SECURITY` acima resolve apenas o caso do dono da tabela; um
--- papel superusuário (o `postgres` default de containers e de várias instâncias
--- Cloud SQL recém-criadas) atravessa toda policy sem erro nenhum. A aplicação
--- PRECISA conectar com um papel comum, senão este arquivo inteiro é decoração e
--- o isolamento entre clientes não existe — silenciosamente.
+-- ATENÇÃO: SUPERUSUÁRIOS DO POSTGRESQL IGNORAM RLS POR COMPLETO. `FORCE ROW
+-- LEVEL SECURITY` acima resolve só o caso do dono da tabela; um papel
+-- superusuário atravessa toda policy sem erro nenhum. É fato genérico do
+-- PostgreSQL, comprovado contra o container postgres:16 do CI (conectar como
+-- `postgres` ali produziu 3 falsos verdes nos testes de isolamento).
 --
--- Os testes verificam isso conectando com um papel não-superusuário criado só
--- para eles; rodá-los como `postgres` produzia 3 falsos verdes.
+-- NÃO se aplica ao Cloud SQL: diagnosticado contra a instância real em
+-- 2026-07-25, nenhum papel — nem `postgres` — tem rolsuper=true ou
+-- rolbypassrls=true lá; o Cloud SQL nunca concede esse bit a papel nenhum.
+-- A tentativa de "reforçar" isso na migração 003 (ALTER ROLE ... NOSUPERUSER)
+-- falhava com "permission denied to alter role": só quem já é superusuário
+-- pode tocar esse atributo, então nem confirmar o óbvio era possível — ver
+-- histórico de 003_papel_da_aplicacao.sql.
+--
+-- Os testes seguem conectando com um papel não-superusuário criado só para
+-- eles, porque continua sendo a forma correta de testar RLS no CI (onde o
+-- container É um PostgreSQL genérico, sujeito à regra geral).
 
 -- regras_tributarias_cache NÃO tem RLS de propósito: é dado legal público,
 -- igual para todos os tenants. Aplicar isolamento ali obrigaria duplicar a
