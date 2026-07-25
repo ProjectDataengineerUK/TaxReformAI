@@ -17,7 +17,8 @@ on:
         options:
           - planalto
           - tcu
-          - ambas
+          - cgibs
+          - todas
           - nenhuma
       recriar_colecao:
         description: "Apagar a coleção do Qdrant antes de ingerir (reingestão limpa)"
@@ -85,7 +86,7 @@ jobs:
         run: python scripts/resetar_colecao.py
 
       - name: Executar pipeline de ingestão (Planalto — LCP 214/2025)
-        if: ${{ inputs.fonte == 'planalto' || inputs.fonte == 'ambas' }}
+        if: ${{ inputs.fonte == 'planalto' || inputs.fonte == 'todas' }}
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
@@ -104,7 +105,7 @@ jobs:
       # atendem as duas — é a prova de que o protocolo LegalSource era genérico
       # de verdade, e não só na intenção. Parâmetros espelham dags/ingestao_legal_dag.py.
       - name: Executar pipeline de ingestão (TCU — Resolução 388/2026)
-        if: ${{ inputs.fonte == 'tcu' || inputs.fonte == 'ambas' }}
+        if: ${{ inputs.fonte == 'tcu' || inputs.fonte == 'todas' }}
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
@@ -118,6 +119,26 @@ jobs:
             --titulo "Resolução TCU 388/2026" \
             --esfera "FEDERAL_CBS_IBS_METODOLOGIA" \
             --data-vigencia-inicio "2026-06-10"
+
+      # Terceira fonte: Resolução CGIBS nº 6 regulamenta o IBS em 252 páginas e
+      # 617 artigos, com "Seção VI - Das Alíquotas" e "Subseção III - Split
+      # Payment". Cada artigo cita o dispositivo correspondente da LC 214/2025,
+      # dando referência cruzada com a fonte do Planalto.
+      - name: Executar pipeline de ingestão (CGIBS — Resolução 6/2026)
+        if: ${{ inputs.fonte == 'cgibs' || inputs.fonte == 'todas' }}
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          python -m ingestion.pipeline run \
+            --fonte cgibs \
+            --url "https://www.cgibs.gov.br/upload/arquivos/202604/30084927-res-cgibs-n-6-30-abr-2026-regulamenta-o-ibs.pdf" \
+            --documento-id "CGIBS_RES_6_2026" \
+            --titulo "Resolução CGIBS 6/2026 — Regulamenta o IBS" \
+            --esfera "SUBNACIONAL_IBS" \
+            --data-vigencia-inicio "2026-04-30"
 
       - name: Verificar busca híbrida
         env:

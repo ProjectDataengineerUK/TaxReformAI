@@ -120,12 +120,15 @@ def construir_fonte(
     instala neste sandbox.
     """
     from ingestion.parser.resolucao_parser import parse_resolucao
+    from ingestion.scraper.cgibs_scraper import CGIBSScraper
     from ingestion.scraper.planalto_scraper import PlanaltoScraper
     from ingestion.scraper.tcu_scraper import TCUScraper
 
     fontes: dict[str, tuple[type, Callable[..., Lei]]] = {
         "planalto": (PlanaltoScraper, parse_lei),
         "tcu": (TCUScraper, parse_resolucao),
+        # CGIBS é PDF como o TCU, então reaproveita parse_resolucao inteiro.
+        "cgibs": (CGIBSScraper, parse_resolucao),
     }
     if fonte not in fontes:
         raise ValueError(
@@ -166,7 +169,7 @@ def _build_cli():
         data_vigencia_inicio: str = typer.Option(..., help="YYYY-MM-DD"),
         data_vigencia_fim: str = typer.Option(None, help="YYYY-MM-DD, opcional"),
         regime: str = typer.Option(None),
-        fonte: str = typer.Option("planalto", help="planalto (HTML) | tcu (PDF)"),
+        fonte: str = typer.Option("planalto", help="planalto (HTML) | tcu (PDF) | cgibs (PDF)"),
     ) -> None:
         settings = Settings.from_env()
 
