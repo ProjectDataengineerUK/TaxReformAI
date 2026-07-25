@@ -16,6 +16,8 @@ on:
         type: choice
         options:
           - planalto
+          - tcu
+          - ambas
           - nenhuma
       confirm:
         description: 'Digite exatamente "INGERIR" para confirmar'
@@ -60,7 +62,7 @@ jobs:
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
 
       - name: Executar pipeline de ingestão (Planalto — LCP 214/2025)
-        if: ${{ inputs.fonte == 'planalto' }}
+        if: ${{ inputs.fonte == 'planalto' || inputs.fonte == 'ambas' }}
         env:
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
@@ -68,11 +70,31 @@ jobs:
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
         run: |
           python -m ingestion.pipeline run \
+            --fonte planalto \
             --url "https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp214.htm" \
             --documento-id "LCP_214_2025" \
             --titulo "Lei Complementar 214/2025" \
             --esfera "FEDERAL_CBS_IBS" \
             --data-vigencia-inicio "2027-01-01"
+
+      # Segunda fonte real: PDF, não HTML. Os mesmos chunker/embedder/indexer
+      # atendem as duas — é a prova de que o protocolo LegalSource era genérico
+      # de verdade, e não só na intenção. Parâmetros espelham dags/ingestao_legal_dag.py.
+      - name: Executar pipeline de ingestão (TCU — Resolução 388/2026)
+        if: ${{ inputs.fonte == 'tcu' || inputs.fonte == 'ambas' }}
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          python -m ingestion.pipeline run \
+            --fonte tcu \
+            --url "https://rotadajurisprudencia.com.br/wp-content/uploads/2026/06/Resolucao-TCU-388_2026.pdf" \
+            --documento-id "TCU_RES_388_2026" \
+            --titulo "Resolução TCU 388/2026" \
+            --esfera "FEDERAL_CBS_IBS_METODOLOGIA" \
+            --data-vigencia-inicio "2026-06-10"
 
       - name: Verificar busca híbrida
         env:

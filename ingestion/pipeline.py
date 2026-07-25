@@ -101,6 +101,43 @@ def executar_pipeline(
     return resumo
 
 
+def construir_fonte(
+    fonte: str,
+    storage,
+    *,
+    timeout_seconds: int = 30,
+    max_retries: int = 3,
+) -> tuple[LegalSource, Callable[..., Lei]]:
+    """Mapeia o nome de uma fonte para o par (scraper, parser) que a atende.
+
+    Planalto (HTML) e TCU (PDF via pdftotext) têm construtores e parsers de
+    assinatura idêntica — foi exatamente isso que `INGESTAO_TCU_E_ETL_AIRFLOW`
+    provou ao adicionar a segunda fonte sem tocar em `chunker.py`. O registro
+    abaixo só torna essa equivalência explícita, para que a CLI (e portanto o
+    workflow de ingestão) não precise de um comando por fonte.
+
+    Fora de `_build_cli()` de propósito: assim é testável sem `typer`, que não
+    instala neste sandbox.
+    """
+    from ingestion.parser.resolucao_parser import parse_resolucao
+    from ingestion.scraper.planalto_scraper import PlanaltoScraper
+    from ingestion.scraper.tcu_scraper import TCUScraper
+
+    fontes: dict[str, tuple[type, Callable[..., Lei]]] = {
+        "planalto": (PlanaltoScraper, parse_lei),
+        "tcu": (TCUScraper, parse_resolucao),
+    }
+    if fonte not in fontes:
+        raise ValueError(
+            f"Fonte desconhecida: {fonte!r}. Conhecidas: {sorted(fontes)}"
+        )
+    classe_scraper, parser = fontes[fonte]
+    scraper = classe_scraper(
+        storage, timeout_seconds=timeout_seconds, max_retries=max_retries
+    )
+    return scraper, parser
+
+
 def _build_cli():
     """CLI isolada atrás de uma factory — `executar_pipeline` acima não
     depende de `typer` para ser importado/testado (ver test_pipeline_integration.py)."""
@@ -129,22 +166,27 @@ def _build_cli():
         data_vigencia_inicio: str = typer.Option(..., help="YYYY-MM-DD"),
         data_vigencia_fim: str = typer.Option(None, help="YYYY-MM-DD, opcional"),
         regime: str = typer.Option(None),
+        fonte: str = typer.Option("planalto", help="planalto (HTML) | tcu (PDF)"),
     ) -> None:
         settings = Settings.from_env()
 
         from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
         from ingestion.indexing.qdrant_indexer import QdrantIndexer
-        from ingestion.scraper.planalto_scraper import PlanaltoScraper
         from ingestion.storage.raw_storage import GCSRawStorage
 
         storage = GCSRawStorage(
             bucket_name=settings.gcs_bucket_name, project_id=settings.gcp_project_id
         )
-        scraper = PlanaltoScraper(
-            storage=storage,
-            timeout_seconds=settings.request_timeout_seconds,
-            max_retries=settings.max_retries,
-        )
+        try:
+            scraper, parser = construir_fonte(
+                fonte,
+                storage,
+                timeout_seconds=settings.request_timeout_seconds,
+                max_retries=settings.max_retries,
+            )
+        except ValueError as exc:
+            logger.error(json.dumps({"etapa": "fonte", "erro": str(exc)}))
+            raise typer.Exit(code=1) from exc
         embedder = FastEmbedHybridEmbedder(dense_model_name=settings.dense_embedding_model)
         indexer = QdrantIndexer(
             url=settings.qdrant_url,
@@ -168,6 +210,7 @@ def _build_cli():
                 scraper=scraper,
                 embedder=embedder,
                 indexer=indexer,
+                parser=parser,
             )
         except (ASTParseError, RuntimeError) as exc:
             logger.error(json.dumps({"etapa": "pipeline", "erro": str(exc)}))
