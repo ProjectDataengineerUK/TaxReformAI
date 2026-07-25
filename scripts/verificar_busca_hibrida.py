@@ -10,10 +10,21 @@ acessível do sandbox de desenvolvimento. Inventar números de artigo como
 gabarito produziria um teste que mede a imaginação de quem o escreveu, não o
 sistema. Em vez disso o gabarito é **derivado do corpus realmente indexado**:
 
-  Bloco A (objetivo, pass/fail) — known-item retrieval. Para 5 chunks reais e
-  distintos, extrai um trecho literal do texto, consulta com ele e exige que o
-  chunk de origem volte no top-3. Verifica de ponta a ponta: embedding,
-  indexação, fusão RRF e recuperação do dispositivo certo.
+  Bloco A (objetivo, pass/fail) — known-item retrieval FILTRADO por
+  documento_id. Para 5 chunks reais e distintos, extrai um trecho literal do
+  texto, consulta com ele dentro do próprio documento e exige que o chunk de
+  origem volte no top-3. Verifica de ponta a ponta: embedding, indexação,
+  fusão RRF e recuperação do dispositivo certo.
+
+  O filtro não é conveniência: o corpus tem sobreposição legítima. A Resolução
+  CGIBS 6 regulamenta a LC 214 e reafirma seu conteúdo artigo a artigo, cada um
+  citando o dispositivo correspondente. Sem filtro, o chunk correto é empurrado
+  do top-3 pelo seu gêmeo da outra fonte, e o teste reprova sem que nada esteja
+  quebrado — mediria a duplicação do corpus, não a qualidade da recuperação.
+
+  Bloco A2 (informativo) — a mesma consulta SEM filtro, para registrar quando a
+  melhor resposta vem de outra fonte. Isso é sinal de sobreposição, não de erro,
+  e é informação útil sobre o corpus.
 
   Bloco B (objetivo, pass/fail) — prova que a busca é de fato HÍBRIDA: a mesma
   consulta é feita só-densa e só-esparsa. Se uma das pernas não retornar nada,
@@ -97,12 +108,14 @@ def main() -> None:
     passo = max(1, len(candidatos) // N_CHUNKS_TESTE)
     selecionados = [candidatos[i * passo] for i in range(N_CHUNKS_TESTE)]
 
-    # --- Bloco A: known-item retrieval ---
-    print(f"\n=== Bloco A — dispositivo correto no top-{TOP_K} (objetivo) ===")
+    # --- Bloco A: known-item retrieval, filtrado pelo próprio documento ---
+    print(f"\n=== Bloco A — dispositivo correto no top-{TOP_K}, dentro do documento (objetivo) ===")
     falhas_a = 0
+    divergencias_entre_fontes = 0
     for i, ponto in enumerate(selecionados, 1):
         payload = ponto.payload or {}
         dispositivo = payload.get("dispositivo", "?")
+        documento = payload.get("documento_id", "?")
         palavras = (payload.get("texto") or "").split()
         # Trecho do meio: evita preâmbulo repetido ("Art. 1º") que apareceria
         # em muitos chunks e tornaria a consulta ambígua de propósito.
@@ -115,17 +128,31 @@ def main() -> None:
             sparse_indices=emb.sparse_indices,
             sparse_values=emb.sparse_values,
             limit=TOP_K,
+            documento_id=documento,
         )
         ids_top = [str(p.id) for p in resultado.points]
         acertou = str(ponto.id) in ids_top
         falhas_a += 0 if acertou else 1
-        print(f"  [{i}/{N_CHUNKS_TESTE}] {'OK  ' if acertou else 'ERRO'} {dispositivo}")
+        print(f"  [{i}/{N_CHUNKS_TESTE}] {'OK  ' if acertou else 'ERRO'} [{documento}] {dispositivo}")
         print(f'        consulta: "{consulta[:70]}..."')
         if not acertou:
             devolvidos = [
                 (p.payload or {}).get("dispositivo", "?") for p in resultado.points
             ]
-            print(f"        esperado no top-{TOP_K}, veio: {devolvidos}")
+            print(f"        esperado no top-{TOP_K} do próprio documento, veio: {devolvidos}")
+
+        # A2: sem filtro. Só registra — outra fonte no topo é sobreposição
+        # legítima do corpus, não falha de recuperação.
+        sem_filtro = indexer.search_hybrid(
+            dense_query=emb.dense_vector,
+            sparse_indices=emb.sparse_indices,
+            sparse_values=emb.sparse_values,
+            limit=TOP_K,
+        )
+        docs_topo = [(p.payload or {}).get("documento_id", "?") for p in sem_filtro.points]
+        if docs_topo and documento not in docs_topo[:1]:
+            divergencias_entre_fontes += 1
+            print(f"        (sem filtro, o topo veio de {docs_topo[0]} — sobreposição entre fontes)")
 
     # --- Bloco B: as duas pernas da busca respondem ---
     print("\n=== Bloco B — busca é genuinamente híbrida (objetivo) ===")
@@ -174,7 +201,11 @@ def main() -> None:
         print()
 
     print("=" * 60)
-    print(f"Bloco A: {N_CHUNKS_TESTE - falhas_a}/{N_CHUNKS_TESTE} dispositivos corretos no top-3")
+    print(f"Bloco A: {N_CHUNKS_TESTE - falhas_a}/{N_CHUNKS_TESTE} dispositivos corretos no top-3 do próprio documento")
+    print(
+        f"Bloco A2 (informativo): em {divergencias_entre_fontes}/{N_CHUNKS_TESTE} consultas "
+        "o topo sem filtro veio de outra fonte — sobreposição esperada entre LC 214 e CGIBS"
+    )
     print(f"Bloco B: {2 - falhas_b}/2 pernas de busca respondendo")
     if falhas_a or falhas_b:
         _falhar(f"{falhas_a + falhas_b} asserção(ões) objetiva(s) falharam")

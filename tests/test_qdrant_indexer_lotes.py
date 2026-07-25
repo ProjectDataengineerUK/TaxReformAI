@@ -42,16 +42,29 @@ def _garantir_qdrant_models() -> None:
         def __init__(self, indices, values):
             self.indices, self.values = indices, values
 
+    class _Simples:
+        def __init__(self, **kwargs):
+            self.__dict__.update(kwargs)
+
     pacote = types.ModuleType("qdrant_client")
     modelos = types.ModuleType("qdrant_client.models")
     modelos.PointStruct = PointStruct
     modelos.SparseVector = SparseVector
+    modelos.Prefetch = _Simples
+    modelos.Filter = _Simples
+    modelos.FieldCondition = _Simples
+    modelos.MatchValue = _Simples
+    modelos.FusionQuery = _Simples
     pacote.models = modelos
     sys.modules.setdefault("qdrant_client", pacote)
     sys.modules.setdefault("qdrant_client.models", modelos)
 
 
 _garantir_qdrant_models()
+
+
+class _Resultado:
+    points: list = []
 
 
 class FakeQdrantClient:
@@ -62,6 +75,10 @@ class FakeQdrantClient:
     def upsert(self, collection_name: str, points: list):
         self.lotes.append(len(points))
         self.ids_recebidos.extend(p.id for p in points)
+
+    def query_points(self, **kwargs):
+        self.ultima_consulta = kwargs
+        return _Resultado()
 
 
 def _indexer_com_cliente_falso() -> tuple[QdrantIndexer, FakeQdrantClient]:
@@ -124,3 +141,32 @@ def test_lista_vazia_nao_chama_o_cliente():
     indexer, fake = _indexer_com_cliente_falso()
     assert indexer.upsert([]) == 0
     assert fake.lotes == []
+
+
+def test_busca_sem_documento_id_nao_aplica_filtro():
+    indexer, fake = _indexer_com_cliente_falso()
+
+    indexer.search_hybrid(dense_query=[0.1], sparse_indices=[1], sparse_values=[0.5])
+
+    assert fake.ultima_consulta["query_filter"] is None
+    assert all(p.filter is None for p in fake.ultima_consulta["prefetch"])
+
+
+def test_filtro_por_documento_vai_nos_dois_prefetch_e_na_fusao():
+    """Aplicar o filtro só na fusão deixaria cada perna gastar seu limite com
+    candidatos de outros documentos, descartados logo depois — o filtro
+    pareceria funcionar e a recuperação ficaria pior sem sinal nenhum."""
+    indexer, fake = _indexer_com_cliente_falso()
+
+    indexer.search_hybrid(
+        dense_query=[0.1],
+        sparse_indices=[1],
+        sparse_values=[0.5],
+        documento_id="LCP_214_2025",
+    )
+
+    consulta = fake.ultima_consulta
+    assert consulta["query_filter"] is not None
+    prefetches = consulta["prefetch"]
+    assert len(prefetches) == 2, "uma perna densa e uma esparsa"
+    assert all(p.filter is not None for p in prefetches)

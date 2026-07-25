@@ -81,19 +81,63 @@ class QdrantIndexer:
             self._client.upsert(collection_name=self._collection_name, points=lote)
         return len(points)
 
-    def search_hybrid(self, dense_query: list[float], sparse_indices: list[int], sparse_values: list[float], limit: int = 5):
-        from qdrant_client.models import FusionQuery, Prefetch, SparseVector
+    def search_hybrid(
+        self,
+        dense_query: list[float],
+        sparse_indices: list[int],
+        sparse_values: list[float],
+        limit: int = 5,
+        documento_id: str | None = None,
+    ):
+        """Busca híbrida (denso + esparso, fundidos por RRF).
+
+        `documento_id` restringe a busca a um documento. Necessário porque o
+        corpus tem sobreposição legítima: a Resolução CGIBS 6 regulamenta a
+        LC 214 e reafirma seu conteúdo artigo a artigo. Sem filtro não dá para
+        distinguir "a recuperação está quebrada" de "o corpus tem o mesmo
+        conteúdo em duas fontes" — e essa distinção é o que separa um bug de
+        uma característica.
+
+        O filtro vai nos dois prefetch, não só na fusão: aplicá-lo apenas no
+        fim deixaria cada perna gastar seu limite com candidatos de outros
+        documentos, que seriam descartados depois.
+        """
+        from qdrant_client.models import (
+            FieldCondition,
+            Filter,
+            FusionQuery,
+            MatchValue,
+            Prefetch,
+            SparseVector,
+        )
+
+        filtro = None
+        if documento_id is not None:
+            filtro = Filter(
+                must=[
+                    FieldCondition(
+                        key="documento_id", match=MatchValue(value=documento_id)
+                    )
+                ]
+            )
 
         return self._client.query_points(
             collection_name=self._collection_name,
             prefetch=[
-                Prefetch(query=dense_query, using="dense", limit=limit * 2),
+                Prefetch(
+                    query=dense_query,
+                    using="dense",
+                    limit=limit * 2,
+                    filter=filtro,
+                ),
                 Prefetch(
                     query=SparseVector(indices=sparse_indices, values=sparse_values),
                     using="sparse",
                     limit=limit * 2,
+                    filter=filtro,
                 ),
             ],
             query=FusionQuery(fusion="rrf"),
             limit=limit,
+            query_filter=filtro,
         )
