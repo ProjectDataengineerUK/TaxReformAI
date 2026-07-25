@@ -22,6 +22,21 @@ class QdrantIndexer:
         self._client = QdrantClient(url=url, api_key=api_key)
         self._collection_name = collection_name
 
+    def drop_collection(self) -> bool:
+        """Apaga a coleção inteira. Devolve True se ela existia.
+
+        Necessário porque o `point_id` deriva de `documento_id:dispositivo`: se
+        o texto-fonte muda de forma a alterar o rótulo do dispositivo, a
+        reingestão grava pontos NOVOS em vez de sobrescrever, e os antigos ficam
+        órfãos. Foi exatamente o caso da corrupção de acentuação — o dispositivo
+        corrompido ('al<?>nea') e o correto ('alínea') geram ids diferentes.
+        """
+        existing = [c.name for c in self._client.get_collections().collections]
+        if self._collection_name not in existing:
+            return False
+        self._client.delete_collection(collection_name=self._collection_name)
+        return True
+
     def ensure_collection(self, dense_vector_size: int) -> None:
         from qdrant_client.models import Distance, SparseVectorParams, VectorParams
 
