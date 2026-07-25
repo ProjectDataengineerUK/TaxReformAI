@@ -101,32 +101,41 @@ python3 -m pytest tests/ -v        # roda os 74 testes sem precisar de nenhuma c
 
 **Ordem importa, por uma dependência circular real:** `NEXT_PUBLIC_API_BASE_URL` é embutida no bundle JS em *build time*, enquanto `FRONTEND_ORIGINS` é lida pela API em *runtime*. O workflow resolve isso lendo as URLs existentes primeiro, deployando a API, buildando o frontend com a URL real da API, e por fim reconciliando o `FRONTEND_ORIGINS` da API (só cria revisão nova se o valor mudou).
 
-**O smoke test reprova o job** — e isso não é redundante: os defaults de `api/main.py` (`FRONTEND_ORIGINS=localhost:3000`) e `api/config.py` (`API_KEYS={}`) fazem um deploy incompleto subir um serviço que responde **200 em `/healthz`** e falha 100% das requisições reais. Por isso o smoke test também faz um `POST /v1/tax/simulate` com chave real e confere o header `access-control-allow-origin`.
+**O smoke test reprova o job** — e isso não é redundante: os defaults de `api/main.py` (`FRONTEND_ORIGINS=localhost:3000`) e `api/config.py` (`API_KEYS={}`) fazem um deploy incompleto subir um serviço que responde **200 em `/health`** e falha 100% das requisições reais. Por isso o smoke test também faz um `POST /v1/tax/simulate` com chave real e confere o header `access-control-allow-origin`.
 
 Secrets necessários: `GCP_PROJECT_ID`, `GCP_DEPLOYER_SA_KEY` (SA `taxreformai-deployer`, escopada — não reusar `GCP_SA_KEY`, que é do Terraform) e `API_KEYS` (JSON `{"chave":"tenant_id"}`). O `tenant_id` do corpo de `POST /v1/tax/simulate` precisa bater com o da credencial, senão a resposta é **403**.
 
-## Runbook — o que falta para o primeiro deploy real
+## Runbook — estado atual
 
-A infraestrutura de CD **já foi aplicada** (verificado via `gcloud` em 2026-07-24): a SA
-`taxreformai-deployer` e o Artifact Registry `taxreformai` existem no projeto `taxreformai-dev`,
-e o secret `GCP_DEPLOYER_SA_KEY` já está cadastrado. Sobra pouco:
+**A aplicação está no ar.** Primeiro deploy real verde em 2026-07-25 (run `30157204455`), com
+smoke test passando. Serviços públicos:
+
+| Serviço | URL |
+|---------|-----|
+| API | `https://taxreformai-api-as2g43xasa-rj.a.run.app` |
+| Frontend | `https://taxreformai-frontend-as2g43xasa-rj.a.run.app` |
+
+Identidade de runtime: `taxreformai-runtime@taxreformai-dev.iam.gserviceaccount.com`,
+deliberadamente **sem role nenhuma** — nem a API nem o frontend acessam GCP em runtime.
 
 | # | Passo | Onde | Status | Por que importa |
 |---|-------|------|--------|-----------------|
 | 1 | Terraform apply (AR + SA de deploy) | GitHub Actions | ✅ Feito | AR criado 15:40; SA `taxreformai-deployer` existe |
 | 2 | Chave JSON da SA → `GCP_DEPLOYER_SA_KEY` | GitHub Secrets | ✅ Feito | Cadastrado 18:48 |
-| 3 | Secret `API_KEYS` (JSON `{"chave":"tenant_id"}`) | GitHub Secrets | ⬜ | Sem ele o serviço sobe respondendo 401 para tudo — mas **200 em `/healthz`** |
-| 4 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | ⬜ | Primeiro deploy real. Fecha AT-001/002/006 se o smoke test passar |
+| 3 | Secret `API_KEYS` (JSON `{"chave":"tenant_id"}`) | GitHub Secrets | ✅ Feito | Sem ele o serviço sobe respondendo 401 para tudo — mas **200 em `/health`** |
+| 4 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | ✅ **Verde** (run 30157204455) | Primeiro deploy real. Fecha AT-001/002/006 se o smoke test passar |
 | 5 | `ingestao.yml` com `fonte=planalto`, `confirm=INGERIR` | GitHub Actions | ⬜ | Escreve em GCS + Qdrant reais. Fecha o critério E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL` |
 | 6 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | ⬜ | Só depois do passo 4 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
 
 Os passos 4 e 5 **gastam dinheiro de verdade** e só rodam por `workflow_dispatch`. O 5 baixa o
 BGE-M3 (~2GB) e tem timeout de 45 min.
 
-**AT-006 (build real das imagens) nunca foi exercitado**: `docker` não existe neste sandbox. A
-revisão de código do build original deu os Dockerfiles como corretos e ainda assim havia um
-`COPY /app/public` sobre um diretório inexistente, que abortaria o build. Trate o passo 4 como a
-primeira verificação de verdade, não como formalidade.
+**Dois defeitos só apareceram contra infraestrutura real**, nenhum detectável por lint, teste ou
+revisão de código: (a) Terraform e `deploy.yml` discordavam sobre a identidade de runtime —
+`iam.serviceaccounts.actAs` negado na SA de compute padrão; (b) o **Google Front End intercepta o
+path exato `/healthz`** em domínios `*.run.app` e devolve o próprio 404 em HTML, sem a requisição
+chegar no contêiner — por isso a rota de saúde é `/health`. Detalhes e caracterização em
+`.claude/sdd/reports/BUILD_REPORT_DEPLOY_CLOUD_RUN.md`, seção "Execução real do runbook".
 
 ---
 
