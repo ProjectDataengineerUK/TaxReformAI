@@ -25,6 +25,11 @@ COPY api/ ./api/
 COPY motor_calculo/ ./motor_calculo/
 COPY orquestracao/ ./orquestracao/
 COPY ingestion/ ./ingestion/
+# db/ (schema, migrador, repositório do audit log) — api/audit.py importa
+# db.repositorio. Faltou aqui na primeira vez que a API real chamou o
+# audit log: os testes locais rodam a partir da raiz do repo, onde db/ já
+# está no sys.path, então o ModuleNotFoundError só apareceu em produção.
+COPY db/ ./db/
 
 EXPOSE 8080
 
