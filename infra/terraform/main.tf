@@ -117,6 +117,19 @@ resource "google_project_iam_member" "deployer_run_admin" {
   depends_on = [google_project_service.run]
 }
 
+# deploy.yml verifica, depois do smoke test, que o audit log foi gravado de
+# verdade — conecta ao Cloud SQL via Auth Proxy usando as mesmas credenciais
+# que o resto do deploy (GCP_DEPLOYER_SA_KEY). Sem isto o passo falha com 403
+# "Not authorized... missing permission cloudsql.instances.get" — descoberto
+# no primeiro deploy real após ligar a API ao Cloud SQL (2026-07-26).
+resource "google_project_iam_member" "deployer_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.deployer_sa.email}"
+
+  depends_on = [google_project_service.sqladmin]
+}
+
 # Identidade de RUNTIME dos serviços Cloud Run — deliberadamente sem role nenhuma.
 # Nem a API nem o frontend acessam GCP em runtime: servem HTTP e leem env vars
 # (API_KEYS, FRONTEND_ORIGINS). Sem esta SA, o `gcloud run deploy` cai na SA de
