@@ -60,8 +60,22 @@ def main() -> None:
 
     conexao = psycopg.connect(os.environ["DATABASE_URL"])
     gravados = gravar_tipi(conexao, linhas, DISPOSITIVO_LEGAL)
+
+    # Confere a contagem real na tabela, não só o que foi tentado: gravar_tipi
+    # devolve len(linhas) independente de o commit ter persistido de fato.
+    with conexao.cursor() as cur:
+        cur.execute("SELECT count(*) FROM aliquotas_ipi_tipi")
+        total_na_tabela = cur.fetchone()[0]
     conexao.close()
-    print(f"OK: {gravados} códigos gravados em aliquotas_ipi_tipi.")
+
+    print(f"OK: {gravados} códigos processados; {total_na_tabela} linhas na tabela agora.")
+    if total_na_tabela < gravados:
+        print(
+            f"AVISO: {gravados} códigos foram processados mas só {total_na_tabela} "
+            "estão na tabela — investigar antes de confiar nestes dados.",
+            file=sys.stderr,
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":
