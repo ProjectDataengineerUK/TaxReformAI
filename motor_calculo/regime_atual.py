@@ -23,13 +23,16 @@ Escopo deliberadamente PARCIAL — ver `TRIBUTOS_INDISPONIVEIS` abaixo:
   DF, cada um com seu próprio RICMS/lei — verificado individualmente em
   2026-07-27, não existe agregador federal tipo CONFAZ para isso). NÃO cobre
   alíquotas específicas por mercadoria (cada estado tem centenas de exceções
-  por NCM/CEST) — mesma limitação estrutural do IPI/TIPI, ver abaixo.
+  por NCM/CEST), e para essas não há hoje fonte única citável.
 - ISS: parcial. LC 116/2003 dá um piso (2%, art. 8º-A) e um teto (5%, art.
   8º) federais, cobrindo TODOS os 5.570 municípios — mas não a alíquota exata
   de nenhum município individual, que só a lei municipal define.
-- IPI: indisponível. A tabela TIPI (decreto) é pública mas tem milhares de
-  linhas por NCM — é dado tabular, não alíquota codificável, mesma classe de
-  problema que SPED/IBPT (decisão registrada no CLAUDE.md em 2026-07-25).
+- IPI: fora DESTE módulo, mas não indisponível ao produto. A TIPI (Decreto
+  11.158/2022) foi ingerida na tabela `aliquotas_ipi_tipi` (migração 004,
+  9231 códigos NCM, cada linha com seu `dispositivo_legal_ref`), e o IPI é
+  resolvido em `api/ipi.py` a partir do NCM do item. Aqui ele continua
+  ausente só porque este módulo é Python puro, sem I/O — a premissa antiga
+  ("dado tabular sem alíquota única para citar") foi refutada na prática.
 """
 
 from dataclasses import dataclass
@@ -37,23 +40,17 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import ClassVar
 
-TRIBUTOS_INDISPONIVEIS = ("IPI",)
+# Vazia desde 2026-07-27: o IPI saiu porque ganhou FONTE DE DADO real
+# (`aliquotas_ipi_tipi` + `api/ipi.py`), não porque virou estimativa. A
+# constante permanece como ponto de extensão para o próximo tributo que seja
+# estruturalmente incalculável — é consumida por `api/routers/simulate.py`,
+# que soma a ela os tributos que faltaram por conteúdo do payload.
+TRIBUTOS_INDISPONIVEIS: tuple[str, ...] = ()
 
 
 class RegimeApuracao(StrEnum):
     NAO_CUMULATIVO = "NAO_CUMULATIVO"
     CUMULATIVO = "CUMULATIVO"
-
-
-class RegimeIndisponivelError(Exception):
-    def __init__(self, tributo: str):
-        super().__init__(
-            f"{tributo} não é calculado por este motor — depende da tabela TIPI "
-            "por NCM (milhares de linhas), dado tabular sem alíquota única para "
-            "citar. Nenhum cálculo é retornado para evitar simular com dado "
-            "estimado."
-        )
-        self.tributo = tributo
 
 
 @dataclass(frozen=True)
@@ -151,8 +148,10 @@ class RegraIcmsInterno:
     """Alíquota GERAL/modal do ICMS interno (mesma UF de origem e destino).
 
     Não cobre alíquotas específicas por mercadoria — cada estado tem centenas
-    de exceções por NCM/CEST (cesta básica, combustíveis, energia etc.), e
-    catalogar isso é o mesmo problema estrutural do IPI/TIPI. `aliquota` é só
+    de exceções por NCM/CEST (cesta básica, combustíveis, energia etc.), e não
+    existe hoje uma fonte única e citável que as consolide (ao contrário da
+    TIPI, que é um decreto federal só e por isso pôde ser ingerida na
+    `aliquotas_ipi_tipi`; aqui seriam 27 regulamentos). `aliquota` é só
     o ICMS propriamente dito; `fecp`, quando existe, é um adicional distinto
     (Fundo Estadual de Combate à Pobreza), com base legal própria — mantido
     separado porque juridicamente não é a mesma alíquota do ICMS, mesmo que a
@@ -366,8 +365,8 @@ class FaixaIss:
     """Piso e teto federais do ISS — NÃO a alíquota exata de nenhum
     município. A LC 116/2003 limita a faixa em que os 5.570 municípios podem
     legislar, mas a alíquota efetiva de cada um só está na lei municipal
-    respectiva, fora do escopo deste motor (mesma razão do IPI/TIPI: dado
-    tabular sem norma única para citar)."""
+    respectiva, fora do escopo deste motor — são 5.570 normas distintas, sem
+    consolidação federal que se possa citar."""
 
     piso: Decimal
     teto: Decimal

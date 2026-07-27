@@ -5,10 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
 from api.db import get_db_pool
+from api.ipi import consultar_ipi_com_seguranca, normalizar_ncm, resolver_item
 from api.schemas_simulate import (
     AliquotasAplicadas,
     Compensacao,
     EscopoSimulacao,
+    IpiNaoResolvido,
     ItemDetalhado,
     ItemRegimeVigente,
     PayloadSimulacao,
@@ -98,6 +100,23 @@ def simular(
     # o que a resposta realmente contém — mesma razão de `regra_pis_cofins`
     # ser opcional em vez de assumido.
     tributos_regime_vigente_incluidos: set[str] = set()
+
+    # UMA consulta por requisição, antes do laço — não uma por item (Decisão 7).
+    # `set` cobre NCMs repetidos (100 itens do mesmo SKU = 1 código); `sorted`
+    # deixa a query determinística e comparável em teste. Payload só de
+    # serviços não abre conexão nenhuma.
+    ncms_consultar = sorted(
+        {
+            codigo
+            for item in payload.itens
+            if item.natureza == "MERCADORIA" and (codigo := normalizar_ncm(item.ncm))
+        }
+    )
+    consulta_ipi = consultar_ipi_com_seguranca(db_pool, ncms_consultar)
+
+    total_ipi: Decimal | None = Decimal(0)
+    itens_mercadoria = 0
+    ipi_nao_resolvido: list[IpiNaoResolvido] = []
 
     for item in payload.itens:
         valor_base_item = item.valor_unitario * item.quantidade
@@ -200,25 +219,87 @@ def simular(
                     "fonte_legal_cofins": regra_pis_cofins.fonte_legal_cofins,
                 }
             )
+
+        # `ipi_situacao` é preenchido nos DOIS ramos (mercadoria e serviço),
+        # nunca por default do modelo: um default silencioso faria um item de
+        # mercadoria com bug reportar NAO_APLICAVEL — afirmação jurídica falsa
+        # emitida sem ninguém perceber (Decisão 3).
+        resolucao = resolver_item(item.natureza, item.ncm, valor_base_item, consulta_ipi)
+        item_regime = item_regime.model_copy(
+            update={
+                "ipi_situacao": resolucao.situacao.value,
+                "ipi_percentual": resolucao.percentual,
+                "fonte_legal_ipi": resolucao.fonte_legal,
+            }
+        )
+        if item.natureza == "MERCADORIA":
+            itens_mercadoria += 1
+            if resolucao.resolvido:
+                total_ipi += resolucao.valor
+            else:
+                ipi_nao_resolvido.append(
+                    IpiNaoResolvido(
+                        sku=item.sku, ncm=item.ncm, situacao=resolucao.situacao.value
+                    )
+                )
+
         itens_regime_vigente.append(item_regime)
+
+    # Um único predicado governa total, escopo e advertência — duas noções de
+    # "resolvido" divergiriam no primeiro refactor. Sem item de mercadoria não
+    # há total de IPI a afirmar (não é zero: é "não se aplica a este payload").
+    ipi_completo = itens_mercadoria > 0 and not ipi_nao_resolvido
+    if ipi_completo:
+        tributos_regime_vigente_incluidos.add("IPI")
+        # Em centavos mesmo quando a soma é zero: um payload inteiramente NT
+        # devolveria `0` cru, e "0" tem cara de campo não preenchido enquanto
+        # "0.00" tem cara do total que de fato é (Decisão 5).
+        total_ipi = total_ipi.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    else:
+        total_ipi = None
 
     # Durante a transição os tributos do regime antigo continuam devidos. O
     # escopo é dinâmico: ICMS_INTERESTADUAL/ICMS_INTERNO/ISS dependem de quais
-    # naturezas/UFs apareceram nos itens (mutuamente exclusivos por item), e
+    # naturezas/UFs apareceram nos itens (mutuamente exclusivos por item), IPI
+    # de todos os itens de mercadoria terem tido o NCM resolvido na TIPI, e
     # PIS/COFINS de `regime_apuracao` ter sido informado — declarar um escopo
-    # fixo voltaria a esconder o que a resposta de fato contém. IPI continua
-    # sempre ausente (`TRIBUTOS_INDISPONIVEIS`): é o único tributo deste
-    # módulo que o motor é estruturalmente incapaz de calcular (tabela TIPI
-    # por NCM, dado tabular sem alíquota única para citar).
+    # fixo voltaria a esconder o que a resposta de fato contém.
+    # `TRIBUTOS_INDISPONIVEIS` está vazia hoje (o IPI saiu quando ganhou fonte
+    # de dado) e continua somada aqui como ponto de extensão.
     tributos_incluidos = ["CBS", "IBS", "IS", *sorted(tributos_regime_vigente_incluidos)]
     tributos_nao_calculados = sorted(
         set(TRIBUTOS_INDISPONIVEIS)
-        | ({"ICMS_INTERESTADUAL", "ICMS_INTERNO", "ISS"} - tributos_regime_vigente_incluidos)
+        | (
+            {"ICMS_INTERESTADUAL", "ICMS_INTERNO", "ISS", "IPI"}
+            - tributos_regime_vigente_incluidos
+        )
     )
     if regra_pis_cofins is not None:
         tributos_incluidos.extend(["PIS", "COFINS"])
     else:
         tributos_nao_calculados = sorted([*tributos_nao_calculados, "PIS", "COFINS"])
+
+    # A frase do IPI é condicional e nunca promete 0%: quando falta resolver,
+    # diz quantos itens ficaram de fora e por qual situação, e `ipi_nao_resolvido`
+    # nomeia cada um.
+    if ipi_completo:
+        advertencia_ipi = (
+            "Inclui IPI da TIPI (Decreto 11.158/2022) para os "
+            f"{itens_mercadoria} item(ns) de natureza=MERCADORIA, resolvido por NCM "
+            "com o dispositivo legal de cada linha citado no item."
+        )
+    elif itens_mercadoria == 0:
+        advertencia_ipi = (
+            "NÃO inclui IPI: nenhum item de natureza=MERCADORIA no payload (o IPI "
+            "não incide sobre serviços)."
+        )
+    else:
+        situacoes = sorted({entrada.situacao for entrada in ipi_nao_resolvido})
+        advertencia_ipi = (
+            f"NÃO inclui IPI: {len(ipi_nao_resolvido)} de {itens_mercadoria} item(ns) "
+            f"de mercadoria não teve o IPI resolvido ({', '.join(situacoes)}) — ver "
+            "regime_vigente.ipi_nao_resolvido. Isto NÃO significa alíquota zero."
+        )
 
     escopo = EscopoSimulacao(
         tributos_incluidos=tributos_incluidos,
@@ -228,9 +309,8 @@ def simular(
             "dado externo: PIS/COFINS quando regime_apuracao é informado; ICMS "
             "interestadual ou interno conforme uf_origem/uf_destino de cada item; "
             "ISS (só piso 2%/teto 5% da LC 116/2003, não a alíquota municipal "
-            "exata) para itens com natureza=SERVICO. NÃO inclui IPI (tabela TIPI "
-            "por NCM, sem alíquota única para citar). O valor líquido não "
-            "representa a carga tributária total da operação."
+            f"exata) para itens com natureza=SERVICO. {advertencia_ipi} O valor "
+            "líquido não representa a carga tributária total da operação."
         ),
     )
 
@@ -258,6 +338,8 @@ def simular(
             total_icms_interno_fecp=total_icms_interno_fecp,
             total_iss_piso=total_iss_piso,
             total_iss_teto=total_iss_teto,
+            total_ipi=total_ipi,
+            ipi_nao_resolvido=ipi_nao_resolvido,
             tributos_nao_calculados=tributos_nao_calculados,
         ),
         itens_regime_vigente=itens_regime_vigente,
@@ -270,7 +352,9 @@ def simular(
         f"operacao={payload.operacao_tipo} itens={len(payload.itens)}",
         resposta_parecer_md=(
             f"CBS {total_cbs} + IBS {total_ibs} + IS {total_is} sobre "
-            f"{valor_bruto_total} ({fase.value}). {resposta.compensacao.fonte_legal or ''}"
+            f"{valor_bruto_total} ({fase.value}). "
+            f"IPI {total_ipi if total_ipi is not None else 'não resolvido'}. "
+            f"{resposta.compensacao.fonte_legal or ''}"
         ),
         payload_calculo=payload.model_dump(mode="json"),
     )

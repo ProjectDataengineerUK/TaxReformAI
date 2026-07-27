@@ -54,6 +54,59 @@ class RegraTributariaCache:
         ]
 
 
+@dataclass(frozen=True)
+class AliquotaIpi:
+    """Uma linha de `aliquotas_ipi_tipi` (migração 004).
+
+    `aliquota_percentual` é NULL exatamente quando `nao_tributado` é true — a
+    CHECK `aliquota_xor_nao_tributado` torna os dois mutuamente exclusivos no
+    banco. "NT" é classificação tributária da própria TIPI, não alíquota 0%.
+    """
+
+    ncm_code: str
+    aliquota_percentual: Decimal | None
+    nao_tributado: bool
+    dispositivo_legal_ref: str
+
+
+def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
+    """Lookup em lote da TIPI. Sem RLS: como `regras_tributarias_cache`, é dado
+    legal público, igual para todo tenant.
+
+    UMA query para N códigos — `= ANY(%s)` com uma lista Python é o idioma
+    nativo do psycopg para lote e usa `idx_aliquotas_ipi_ncm`. Um laço de
+    `buscar_ipi(ncm)` seriam até 100 round-trips ao Cloud SQL por requisição.
+
+    Propaga exceção de propósito: quem decide degradar é `api/ipi.py`, não este
+    módulo (ver Decisão 6 do DESIGN). NCM ausente simplesmente não aparece no
+    dicionário — o chamador distingue ausência de falha porque falha vira
+    exceção, nunca um dicionário vazio.
+    """
+    if not ncms:
+        return {}
+
+    with conexao.cursor() as cur:
+        cur.execute(
+            """
+            SELECT ncm_code, aliquota_percentual, nao_tributado, dispositivo_legal_ref
+            FROM aliquotas_ipi_tipi
+            WHERE ncm_code = ANY(%s)
+            """,
+            (list(ncms),),
+        )
+        linhas = cur.fetchall()
+
+    return {
+        linha[0]: AliquotaIpi(
+            ncm_code=linha[0],
+            aliquota_percentual=linha[1],
+            nao_tributado=linha[2],
+            dispositivo_legal_ref=linha[3],
+        )
+        for linha in linhas
+    }
+
+
 @contextmanager
 def sessao_do_tenant(conexao, tenant_id: UUID):
     """Transação com `app.tenant_id` declarado, para o RLS enxergar o tenant.

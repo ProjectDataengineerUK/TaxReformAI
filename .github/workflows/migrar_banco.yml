@@ -25,6 +25,14 @@ on:
         options:
           - "sim"
           - "nao"
+      verificar_ipi:
+        description: "Provar que o papel de RUNTIME (taxreformai_app) lê aliquotas_ipi_tipi — o GRANT da migração 004 nunca foi exercitado"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -120,6 +128,18 @@ jobs:
         run: |
           export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/verificar_rls_producao.py
+
+      # Pela Decisão 2 do DESIGN de IPI_TIPI_MOTOR_CALCULO, um GRANT faltando
+      # NÃO produz erro em runtime: produz CONSULTA_INDISPONIVEL silencioso na
+      # resposta de /v1/tax/simulate. Este passo é o único lugar em que isso
+      # falha ruidosamente — e usa a senha do papel APP, não a do admin, porque
+      # a pergunta é "a API consegue ler?", não "o dado existe?".
+      - name: Verificar leitura de IPI pelo papel de runtime
+        if: ${{ inputs.verificar_ipi == 'sim' }}
+        run: |
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_ipi_producao.py
 
       - name: Encerrar o proxy
         if: always()

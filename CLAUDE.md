@@ -18,6 +18,7 @@
 | `FRONTEND_SIMULADOR` (`frontend/`) | ✅ Shipado (`.claude/sdd/archive/FRONTEND_SIMULADOR/`) | Next.js 14 (App Router) com `/simulador` (formulário estruturado) e `/consulta` (conversacional), consumindo a API real; API key via `localStorage`. Corrigiu de quebra um bug crítico de CORS em `api/main.py` (a API não tinha `CORSMiddleware` — nenhuma chamada de um navegador real teria funcionado) |
 
 | `SCHEMA_POSTGRESQL` (`db/`, `motor_calculo/regime_atual.py`) | ✅ Shipado (`.claude/sdd/archive/SCHEMA_POSTGRESQL/`) | Schema da seção 7 (multi-tenancy via RLS, audit log, cache de regras) **aplicado no Cloud SQL real** e conectado à API deployada — audit log gravando de verdade, provado por consulta separada. Mais o regime tributário vigente (PIS/COFINS, ICMS interestadual) com todas as alíquotas citadas por artigo real do Planalto/LexML, nunca de memória |
+| `IPI_TIPI_MOTOR_CALCULO` (`api/ipi.py`, `db/repositorio.py`, `api/routers/simulate.py`) | 🔄 Construído (`.claude/sdd/features/BUILD_REPORT_IPI_TIPI_MOTOR_CALCULO.md`) — falta a verificação contra o Cloud SQL real (`migrar_banco.yml` com `verificar_ipi=sim`) e o deploy com o smoke test novo | Liga a tabela `aliquotas_ipi_tipi` (9231 NCMs já ingeridos) ao `/v1/tax/simulate`: lookup em lote (1 query por request, `= ANY(%s)`), IPI por item com o `dispositivo_legal_ref` da própria linha como fonte. `ipi_situacao` é um enum de 5 estados — NT nunca vira 0%, NCM ausente nunca vira omissão, banco fora do ar nunca vira 5xx |
 
 Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run e o schema PostgreSQL real e conectado — 8 features shipadas. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
 
@@ -51,7 +52,8 @@ executam contra Postgres de verdade, não SQLite) + testes de frontend a cada pu
 `terraform.yml` faz plan/apply via `workflow_dispatch`; `deploy.yml` publica no Cloud Run e liga a
 API ao Cloud SQL via `workflow_dispatch`; `ingestao.yml` roda a ingestão real + verificação E2E da
 busca híbrida via `workflow_dispatch` (guarda `INGERIR`); `migrar_banco.yml` aplica migrações e
-prova RLS contra o Cloud SQL real via `workflow_dispatch` (guarda `MIGRAR`). O bucket GCS e o
+prova RLS + a leitura de IPI pelo papel de runtime contra o Cloud SQL real via
+`workflow_dispatch` (guarda `MIGRAR`). O bucket GCS e o
 Cloud SQL já foram aplicados de verdade; o state do Terraform é remoto (`gs://taxreformai-dev-tfstate`).
 
 Próximo ciclo: conectar LLMs reais (Vertex AI) — 4 dos 5 nós da orquestração ainda são fake — e
@@ -91,20 +93,21 @@ TaxReformAI/
 │   ├── regras_fiscais.py       # RegraFiscal (alíquota `Decimal | None` + fonte por tributo) + AliquotaNaoDisponivelError
 │   ├── tabela_aliquotas.py      # TabelaAliquotas (Protocol) + seed com artigos reais (2026 completo, 2027-28 parcial)
 │   ├── engine.py                 # TaxCalculatorEngine — CBS/IBS/IS (reforma)
-│   └── regime_atual.py            # PIS/COFINS + ICMS interestadual + ICMS interno (27 UFs) + ISS piso/teto (regime VIGENTE) — cada alíquota citada por artigo real; só IPI fora (dado tabular, sem norma única)
+│   └── regime_atual.py            # PIS/COFINS + ICMS interestadual + ICMS interno (27 UFs) + ISS piso/teto (regime VIGENTE) — cada alíquota citada por artigo real; IPI NÃO mora aqui (precisa de banco), vive em api/ipi.py
 ├── db/                        # SCHEMA_POSTGRESQL — schema real no Cloud SQL (taxreformai-pg)
-│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app)
+│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app) → 004 (aliquotas_ipi_tipi + GRANT SELECT ao papel app)
 │   ├── migrador.py               # Runner idempotente, sem ORM
-│   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_regra_cache
+│   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_regra_cache, buscar_ipi_por_ncm (lote, 1 query)
 ├── api/db.py                # Pool de conexão (Depends, overridável em teste — mesmo padrão de api/config.get_settings)
 ├── api/audit.py              # registrar_com_seguranca — audit log que NUNCA propaga exceção
+├── api/ipi.py                # IPI_TIPI — normalizar_ncm + resolver_item (5 situações) + consultar_ipi_com_seguranca; gêmeo de LEITURA do audit.py, também nunca propaga
 ├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo; copia api/, motor_calculo/, orquestracao/, ingestion/ E db/
 ├── frontend/Dockerfile       # DEPLOY_CLOUD_RUN — multi-stage (deps→builder→runner), Next.js standalone, usuário não-root
 ├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic/psycopg) — o que vai para a imagem; requirements.txt inclui via `-r`
 ├── infra/terraform/         # Bucket GCS + Artifact Registry + SA de deploy + Cloud SQL (taxreformai-pg) — state remoto em gs://taxreformai-dev-tfstate
 ├── .github/workflows/        # ci.yml (pytest + frontend, com Postgres real de serviço) + terraform.yml + deploy.yml (Cloud Run + Cloud SQL) + ingestao.yml + migrar_banco.yml — os 4 últimos só por workflow_dispatch
-├── scripts/                  # verificar_busca_hibrida.py, aplicar_migracoes.py, popular_tenants.py, verificar_rls_producao.py, verificar_audit_log_gravado.py — todos rodam só via workflow, nunca local
-├── tests/                    # 141 testes (pytest) — os de schema/RLS pulam sem DATABASE_URL, rodam de verdade no CI
+├── scripts/                  # verificar_busca_hibrida.py, aplicar_migracoes.py, popular_tenants.py, verificar_rls_producao.py, verificar_audit_log_gravado.py, ingerir_tipi.py, verificar_ipi_producao.py — todos rodam só via workflow, nunca local
+├── tests/                    # 246 testes (pytest) — os de schema/RLS/TIPI pulam sem DATABASE_URL, rodam de verdade no CI
 ├── .env.example              # Template de variáveis — .env local fica só com config não-sensível (ex: FRONTEND_ORIGINS); credenciais reais vivem em GitHub Secrets
 └── .claude/sdd/               # Documentos do workflow SDD (features/, reports/, archive/)
 ```
@@ -182,6 +185,12 @@ API conectada — ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/`.
   papel testada só contra Postgres genérico.
 - **Audit log gravando em produção**, confirmado por consulta separada depois do smoke test do
   deploy (`deploy.yml`, passo "Verificar que o audit log foi gravado de verdade").
+- **`aliquotas_ipi_tipi`** (migração 004, 9231 NCMs) é lida em runtime pelo `/v1/tax/simulate`.
+  O `GRANT SELECT` ao papel `taxreformai_app` **nunca havia sido exercitado por nenhum SELECT** —
+  e, como a falha degrada silenciosamente (200 com `total_ipi: null`), só um teste ativo a
+  detecta: `scripts/verificar_ipi_producao.py`, via `migrar_banco.yml` (`verificar_ipi=sim`),
+  conecta com o papel de RUNTIME e falha ruidosamente. O smoke test do `deploy.yml` fecha o E2E
+  exigindo `regime_vigente.total_ipi` não-nulo.
 
 ## Regime tributário vigente (`motor_calculo/regime_atual.py`)
 
@@ -198,14 +207,21 @@ significa "não informado", nunca "presume-se X".
 (verificação individual contra o RICMS/lei de cada estado — não existe agregador federal tipo
 CONFAZ), incluindo FECP separado onde existe (RJ +2%, SE +1%, com base legal própria distinta do
 ICMS); `iss_faixa()` cobre o piso (2%) e teto (5%) federais do ISS (LC 116/2003, arts. 8º-A e 8º).
-Nenhum dos dois cobre exceção por mercadoria/serviço específico (cesta básica, combustíveis etc.) —
-mesma limitação estrutural do IPI/TIPI. **Ainda não plugados em `/v1/tax/simulate`**: o endpoint
-segue declarando os dois em `tributos_nao_incluidos` porque falta decidir como o payload sinaliza
-operação interna vs. interestadual e mercadoria vs. serviço (`operacao_tipo` é string livre, não
-enum) — candidato para o próximo ciclo.
+Nenhum dos dois cobre exceção por mercadoria/serviço específico (cesta básica, combustíveis etc.),
+e para essas não há fonte única citável (seriam 27 regulamentos e 5.570 leis municipais). **Já
+plugados em `/v1/tax/simulate`**: o endpoint escolhe interno x interestadual por
+`uf_origem == uf_destino` e ICMS x ISS por `natureza` do item, e o escopo da resposta é dinâmico —
+declara em `tributos_incluidos` só o que aquele payload de fato disparou.
 
-Fora de escopo, mesma razão do SPED/IBPT: **IPI** (tabela TIPI por NCM, dado tabular, sem alíquota
-única para citar).
+**IPI — deixou de estar fora de escopo em 2026-07-27** (`IPI_TIPI_MOTOR_CALCULO`). A premissa
+antiga ("dado tabular sem alíquota única para citar", mesma razão do SPED/IBPT) foi refutada na
+prática: a TIPI é **um decreto federal só** (11.158/2022), foi ingerida em `aliquotas_ipi_tipi`
+(9231 códigos NCM, cada linha com seu `dispositivo_legal_ref`) e agora é consultada por
+`api/ipi.py`. O que continua valendo é o motivo pelo qual ele **não** mora em
+`motor_calculo/regime_atual.py`: esse módulo é Python puro, sem I/O, e o IPI precisa de banco.
+`TRIBUTOS_INDISPONIVEIS` ficou vazia — o IPI entra/sai do escopo pelo mesmo mecanismo dinâmico de
+ICMS_INTERNO/ISS. SPED/IBPT seguem fora, por razão diferente e ainda válida (licenciamento e
+reedição bimestral, não formato).
 
 ---
 

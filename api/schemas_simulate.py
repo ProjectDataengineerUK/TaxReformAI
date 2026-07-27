@@ -3,6 +3,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from api.ipi import SituacaoIpi
 from motor_calculo.regime_atual import RegimeApuracao
 
 
@@ -85,6 +86,15 @@ class Compensacao(BaseModel):
     fonte_legal: str | None = None
 
 
+class IpiNaoResolvido(BaseModel):
+    """Enumera o que ficou de fora quando a resolução foi parcial (Decisão 5).
+    Sem isto, `total_ipi = null` não diria QUAL item causou."""
+
+    sku: str
+    ncm: str
+    situacao: str  # NCM_NAO_ENCONTRADO | CONSULTA_INDISPONIVEL
+
+
 class ItemRegimeVigente(BaseModel):
     """Exatamente um dos três blocos de ICMS/ISS é preenchido por item, nunca
     mais de um — são bases mutuamente exclusivas (mercadoria interestadual x
@@ -119,6 +129,15 @@ class ItemRegimeVigente(BaseModel):
     fonte_legal_pis: str | None = None
     fonte_legal_cofins: str | None = None
 
+    # IPI (TIPI, Decreto 11.158/2022). `ipi_situacao` é sempre preenchido, nos
+    # dois ramos do laço: quatro coisas diferentes colapsariam num só `null` de
+    # `ipi_percentual` — NT, NCM desconhecido, consulta falha e item de serviço.
+    # NT (`NAO_TRIBUTADO`) NÃO é alíquota 0%: é classificação tributária própria
+    # da TIPI, preservada como coluna separada desde a migração 004.
+    ipi_percentual: Decimal | None = None
+    fonte_legal_ipi: str | None = None
+    ipi_situacao: str = SituacaoIpi.NAO_APLICAVEL
+
 
 class RegimeVigenteResumo(BaseModel):
     regime_apuracao: str | None = None
@@ -130,9 +149,14 @@ class RegimeVigenteResumo(BaseModel):
     # Faixa, não valor único — ISS não tem alíquota municipal exata neste motor.
     total_iss_piso: Decimal = Decimal(0)
     total_iss_teto: Decimal = Decimal(0)
-    # Sempre inclui IPI; mais ICMS_INTERESTADUAL/ICMS_INTERNO/ISS quando
-    # nenhum item do payload disparou aquele cálculo, mais PIS/COFINS quando
-    # regime_apuracao não foi informado.
+    # `None` quando QUALQUER item de mercadoria ficou sem resolver, ou quando
+    # não há item de mercadoria — nunca um total parcial com cara de total
+    # (Decisão 5). `Decimal("0.00")` é um total legítimo: payload todo NT.
+    total_ipi: Decimal | None = None
+    ipi_nao_resolvido: list[IpiNaoResolvido] = []
+    # ICMS_INTERESTADUAL/ICMS_INTERNO/ISS quando nenhum item do payload
+    # disparou aquele cálculo; IPI quando algum item de mercadoria ficou sem
+    # resolver; PIS/COFINS quando regime_apuracao não foi informado.
     tributos_nao_calculados: list[str]
 
 
