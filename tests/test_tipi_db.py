@@ -97,9 +97,16 @@ def test_reingestao_atualiza_em_vez_de_duplicar(conexao):
 
 def test_gravar_tipi_em_lote_maior_que_o_tamanho_do_lote(conexao):
     """Prova o caminho de múltiplos lotes (não só o de um lote só) contra o
-    banco real — mesma preocupação que motivou TAMANHO_LOTE_UPSERT no Qdrant."""
+    banco real — mesma preocupação que motivou TAMANHO_LOTE_UPSERT no Qdrant.
+
+    O código varia o CAPÍTULO (2 primeiros dígitos), não o sufixo: um NCM
+    real nunca passa de 10 caracteres (NNNN.NN.NN), e i:02d estourando de 99
+    para 100 já quebraria o formato — foi exatamente o bug que reprovou o CI
+    na primeira versão deste teste.
+    """
     linhas = [
-        LinhaTipi(f"8888.88.{i:02d}", f"item {i}", Decimal("0.01"), False) for i in range(250)
+        LinhaTipi(f"{8800 + i // 100:04d}.{i % 100:02d}.01", f"item {i}", Decimal("0.01"), False)
+        for i in range(250)
     ]
     gravados = gravar_tipi(conexao, linhas, FONTE, lote=100)
 
