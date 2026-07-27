@@ -73,21 +73,31 @@ def main() -> None:
             max_retries=settings.max_retries,
         )
         print(f"--- Resolução {resolucao.numero} ({data_vigencia}) ---")
-        resumo = executar_pipeline(
-            url=resolucao.url,
-            documento_id=resolucao.documento_id,
-            titulo=resolucao.titulo,
-            esfera="SUBNACIONAL_IBS",
-            data_vigencia_inicio=data_vigencia,
-            scraper=scraper,
-            embedder=embedder,
-            indexer=indexer,
-            parser=parse_resolucao,
-        )
+        try:
+            resumo = executar_pipeline(
+                url=resolucao.url,
+                documento_id=resolucao.documento_id,
+                titulo=resolucao.titulo,
+                esfera="SUBNACIONAL_IBS",
+                data_vigencia_inicio=data_vigencia,
+                scraper=scraper,
+                embedder=embedder,
+                indexer=indexer,
+                parser=parse_resolucao,
+            )
+        except Exception as exc:  # noqa: BLE001 — uma resolução com timeout de
+            # rede (visto na prática: ConnectTimeout na nº 11) não pode
+            # abortar as demais 12. Sem este try/except, a primeira falha
+            # transiente derruba o lote inteiro e as resoluções seguintes
+            # nunca chegam a ser tentadas — foi exatamente o que aconteceu na
+            # primeira execução real deste script.
+            print(f"  FALHA na resolução {resolucao.numero}: {exc}", file=sys.stderr)
+            falhas.append(resolucao.numero)
+            continue
         print(f"  {resumo}")
 
     if falhas:
-        print(f"FALHA: {len(falhas)} resolução(ões) sem data: {falhas}", file=sys.stderr)
+        print(f"FALHA: {len(falhas)} resolução(ões) não ingeridas: {falhas}", file=sys.stderr)
         sys.exit(1)
 
     print(f"OK: {len(resolucoes)} resoluções ingeridas.")
