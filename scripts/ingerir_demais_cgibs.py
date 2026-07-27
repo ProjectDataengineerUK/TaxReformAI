@@ -12,7 +12,9 @@ cálculo, mas completam a cobertura do CGIBS que o blueprint pede (seção 4.1).
 Roda só via `ingestao.yml` (guarda `INGERIR`), nunca local.
 """
 
+import os
 import sys
+import time
 
 import httpx
 
@@ -32,6 +34,15 @@ from ingestion.storage.raw_storage import GCSRawStorage
 
 PULAR_POR_PADRAO = {6}
 
+# Intervalo entre downloads: a segunda execução real teve 3 ConnectionRefused
+# seguidos (nº 10, 11, 12) logo depois de 9 downloads em sequência rápida —
+# o próprio servidor respondeu 200 rápido quando testado isoladamente minutos
+# depois, então é bloqueio por taxa de requisição, não instabilidade aleatória
+# nem URL quebrada. Um intervalo educado é a correção certa, não só a mais
+# fácil: bater um servidor público sem pausa é mau comportamento de scraper
+# mesmo quando "funciona".
+INTERVALO_ENTRE_DOWNLOADS_SEGUNDOS = 5
+
 
 def main() -> None:
     settings = Settings.from_env()
@@ -40,7 +51,21 @@ def main() -> None:
     resposta.raise_for_status()
     html = decodificar_resposta(resposta.charset_encoding, resposta.content)
 
-    resolucoes = [r for r in listar_resolucoes(html) if r.numero not in PULAR_POR_PADRAO]
+    # CGIBS_PULAR sobrepõe PULAR_POR_PADRAO para reprocessar só um subconjunto
+    # (ex.: depois de uma falha parcial, sem reincidir sobre o que já ingeriu
+    # com sucesso e voltar a martelar o servidor deles). Sem a variável,
+    # comportamento padrão continua: só pula a nº 6.
+    # `or None` normaliza string vazia para None: o workflow sempre passa a
+    # variável de ambiente, mesmo quando o input fica no default "" — sem
+    # isso, `pular_override is not None` seria verdadeiro para "" e o parsing
+    # devolveria um conjunto vazio, deixando de pular até a nº 6.
+    pular_override = os.environ.get("CGIBS_PULAR") or None
+    pular = (
+        {int(n) for n in pular_override.split(",") if n.strip()}
+        if pular_override is not None
+        else PULAR_POR_PADRAO
+    )
+    resolucoes = [r for r in listar_resolucoes(html) if r.numero not in pular]
     print(f"Resoluções a ingerir: {[r.numero for r in resolucoes]}")
 
     storage = GCSRawStorage(
@@ -54,7 +79,9 @@ def main() -> None:
     )
 
     falhas = []
-    for resolucao in resolucoes:
+    for indice, resolucao in enumerate(resolucoes):
+        if indice > 0:
+            time.sleep(INTERVALO_ENTRE_DOWNLOADS_SEGUNDOS)
         data_vigencia = extrair_data_vigencia(resolucao)
         if data_vigencia is None:
             # Melhor pular uma resolução do que inventar a data em que ela

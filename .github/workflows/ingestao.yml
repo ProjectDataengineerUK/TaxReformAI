@@ -35,6 +35,10 @@ on:
         description: 'Digite exatamente "INGERIR" para confirmar'
         required: true
         default: ""
+      cgibs_pular:
+        description: "Só para fonte=cgibs_demais: números a NÃO reingerir, separados por vírgula, substituindo o default (só a nº 6). Ex., depois de 9 já terem ingerido com sucesso: '1,2,3,4,5,6,7,8,9,13' para tentar só as que faltam"
+        required: false
+        default: ""
 
 jobs:
   ingestao-e-verificacao:
@@ -159,6 +163,7 @@ jobs:
           GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          CGIBS_PULAR: ${{ inputs.cgibs_pular }}
         run: python scripts/ingerir_demais_cgibs.py
 
       # Quarta fonte: Soluções de Consulta da RFB (SIJUT2), ementas apenas.
