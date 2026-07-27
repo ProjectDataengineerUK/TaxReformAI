@@ -17,7 +17,9 @@
 | `API_HTTP_SIMULACAO` (`api/`) | ✅ Shipado (`.claude/sdd/archive/API_HTTP_SIMULACAO/`) | FastAPI com `POST /v1/tax/simulate` (estruturado, schema da seção 8, integração ERP) e `POST /v1/tax/query` (conversacional, expõe `orquestracao/` via novo `orquestracao/executor.py` — sequencial, sem depender de `langgraph`); auth via `X-API-Key`. Primeira feature sem nenhum blocker de dependência; testada com `uvicorn` real + `curl`, não só testes automatizados |
 | `FRONTEND_SIMULADOR` (`frontend/`) | ✅ Shipado (`.claude/sdd/archive/FRONTEND_SIMULADOR/`) | Next.js 14 (App Router) com `/simulador` (formulário estruturado) e `/consulta` (conversacional), consumindo a API real; API key via `localStorage`. Corrigiu de quebra um bug crítico de CORS em `api/main.py` (a API não tinha `CORSMiddleware` — nenhuma chamada de um navegador real teria funcionado) |
 
-Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU) e a camada ETL real (Airflow, escrita) — as 6 primeiras features estão shipadas. A **7ª, `DEPLOY_CLOUD_RUN`, foi shipada em 2026-07-25** (`.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) com **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar. A aplicação está pública e funcionando.
+| `SCHEMA_POSTGRESQL` (`db/`, `motor_calculo/regime_atual.py`) | ✅ Shipado (`.claude/sdd/archive/SCHEMA_POSTGRESQL/`) | Schema da seção 7 (multi-tenancy via RLS, audit log, cache de regras) **aplicado no Cloud SQL real** e conectado à API deployada — audit log gravando de verdade, provado por consulta separada. Mais o regime tributário vigente (PIS/COFINS, ICMS interestadual) com todas as alíquotas citadas por artigo real do Planalto/LexML, nunca de memória |
+
+Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run e o schema PostgreSQL real e conectado — 8 features shipadas. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
 
 ### Fontes legais ingeridas (verificado em produção, 2026-07-25)
 
@@ -44,12 +46,17 @@ privado — não legislação em domínio público como as outras três. É deci
 não técnica. A tabela ainda tem vigência de ~2 meses e é reeditada bimestralmente, o que a torna
 um problema de sincronização periódica, não de ingestão documental.
 
-CI/CD: `ci.yml` roda pytest + testes de frontend a cada push/PR, `terraform.yml` faz plan/apply via `workflow_dispatch`, `deploy.yml` publica no Cloud Run via `workflow_dispatch`, `ingestao.yml` roda a ingestão real + verificação E2E da busca híbrida via `workflow_dispatch` (guarda `INGERIR`). O bucket GCS já foi aplicado de verdade e o state do Terraform agora é remoto (`gs://taxreformai-dev-tfstate`). Próximo ciclo: **schema PostgreSQL** (seção 7 — multi-tenancy real, audit log, cache de regras),
-que também é pré-requisito para SPED/IBPT. Depois: conectar LLMs reais (Vertex AI) — 4 dos 5 nós
-da orquestração ainda são fake — e verificação manual em navegador, agora possível porque há URL
-pública.
+CI/CD: `ci.yml` roda pytest (com **container de serviço PostgreSQL real** — os testes de schema/RLS
+executam contra Postgres de verdade, não SQLite) + testes de frontend a cada push/PR;
+`terraform.yml` faz plan/apply via `workflow_dispatch`; `deploy.yml` publica no Cloud Run e liga a
+API ao Cloud SQL via `workflow_dispatch`; `ingestao.yml` roda a ingestão real + verificação E2E da
+busca híbrida via `workflow_dispatch` (guarda `INGERIR`); `migrar_banco.yml` aplica migrações e
+prova RLS contra o Cloud SQL real via `workflow_dispatch` (guarda `MIGRAR`). O bucket GCS e o
+Cloud SQL já foram aplicados de verdade; o state do Terraform é remoto (`gs://taxreformai-dev-tfstate`).
 
-> **Duas execuções pendentes, ambas só por `workflow_dispatch` e ambas cobráveis.** Nenhuma foi rodada ainda; o código dos dois caminhos está revisado e verificado até onde este sandbox permite (sem `docker`, sem `typer`, sem `qdrant-client`). Ver "Runbook pendente" no fim deste arquivo.
+Próximo ciclo: conectar LLMs reais (Vertex AI) — 4 dos 5 nós da orquestração ainda são fake — e
+verificação manual em navegador, agora possível porque há URL pública (a extensão do Chrome não
+estava conectada nas últimas tentativas). **SPED/IBPT** seguem fora de escopo — ver decisão abaixo.
 
 ## Stack planejada (extraída de `contexto.md`)
 
@@ -57,7 +64,7 @@ pública.
 - **Backend/API:** FastAPI (Python 3.11+) + Pydantic v2 + Celery/Redis (fila assíncrona)
 - **Orquestração multi-agente:** LangGraph / CrewAI + Anthropic Claude via Vertex AI (Claude 3.5 Sonnet e Haiku)
 - **Motor determinístico:** Python puro (sandbox), sem LLM, para cálculos de IVA Dual/Split Payment
-- **Banco relacional:** Cloud SQL (PostgreSQL 16)
+- **Banco relacional:** Cloud SQL (PostgreSQL 16) — **real, aplicado e conectado** desde `SCHEMA_POSTGRESQL` (2026-07-27)
 - **Banco vetorial:** Qdrant Cloud (busca híbrida densa/esparsa, embeddings `intfloat/multilingual-e5-large` + BM25 esparso — o blueprint pede BGE-M3, mas o `fastembed` não o suporta; ver `ingestion/embedding/hybrid_embedder.py`)
 - **Data lake:** Google Cloud Storage (GCS)
 - **Ingestão/ETL:** Scrapy / Playwright orquestrados via Airflow (Cloud Composer)
@@ -79,18 +86,25 @@ TaxReformAI/
 │   └── pipeline.py                   # CLI de orquestração (executar_pipeline, parser injetável)
 ├── dags/                     # INGESTAO_TCU_E_ETL_AIRFLOW — DAG real do Airflow/Cloud Composer
 │   └── ingestao_legal_dag.py  # TaskFlow API; não importável neste sandbox (apache-airflow ausente), só revisão de código
-├── motor_calculo/            # MOTOR_DETERMINISTICO_CALCULO — cálculo de CBS/IBS/IS/Split Payment
+├── motor_calculo/            # MOTOR_DETERMINISTICO_CALCULO + SCHEMA_POSTGRESQL — cálculo tributário
 │   ├── fases.py               # FaseTransicao + fase_para(ano)
 │   ├── regras_fiscais.py       # RegraFiscal (alíquota `Decimal | None` + fonte por tributo) + AliquotaNaoDisponivelError
 │   ├── tabela_aliquotas.py      # TabelaAliquotas (Protocol) + seed com artigos reais (2026 completo, 2027-28 parcial)
-│   └── engine.py                 # TaxCalculatorEngine
-├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo (imports absolutos de motor_calculo/orquestracao/ingestion)
+│   ├── engine.py                 # TaxCalculatorEngine — CBS/IBS/IS (reforma)
+│   └── regime_atual.py            # PIS/COFINS + ICMS interestadual (regime VIGENTE) — 7 alíquotas, cada uma citada por artigo real; IPI/ICMS interno/ISS deliberadamente fora (dado tabular ou sem norma única)
+├── db/                        # SCHEMA_POSTGRESQL — schema real no Cloud SQL (taxreformai-pg)
+│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app)
+│   ├── migrador.py               # Runner idempotente, sem ORM
+│   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_regra_cache
+├── api/db.py                # Pool de conexão (Depends, overridável em teste — mesmo padrão de api/config.get_settings)
+├── api/audit.py              # registrar_com_seguranca — audit log que NUNCA propaga exceção
+├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo; copia api/, motor_calculo/, orquestracao/, ingestion/ E db/
 ├── frontend/Dockerfile       # DEPLOY_CLOUD_RUN — multi-stage (deps→builder→runner), Next.js standalone, usuário não-root
-├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic) — o que vai para a imagem; requirements.txt inclui via `-r`
-├── infra/terraform/         # Bucket GCS + Artifact Registry + SA de deploy — state remoto em gs://taxreformai-dev-tfstate
-├── .github/workflows/        # ci.yml (pytest + frontend, a cada push/PR) + terraform.yml + deploy.yml (Cloud Run) + ingestao.yml (ingestão real + verificação E2E) — os 3 últimos só por workflow_dispatch
-├── scripts/                  # verificar_busca_hibrida.py — gabarito derivado do corpus indexado; roda só no ingestao.yml, nunca local
-├── tests/                    # 74 testes (pytest) cobrindo as features com testes pytest (frontend usa vitest à parte)
+├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic/psycopg) — o que vai para a imagem; requirements.txt inclui via `-r`
+├── infra/terraform/         # Bucket GCS + Artifact Registry + SA de deploy + Cloud SQL (taxreformai-pg) — state remoto em gs://taxreformai-dev-tfstate
+├── .github/workflows/        # ci.yml (pytest + frontend, com Postgres real de serviço) + terraform.yml + deploy.yml (Cloud Run + Cloud SQL) + ingestao.yml + migrar_banco.yml — os 4 últimos só por workflow_dispatch
+├── scripts/                  # verificar_busca_hibrida.py, aplicar_migracoes.py, popular_tenants.py, verificar_rls_producao.py, verificar_audit_log_gravado.py — todos rodam só via workflow, nunca local
+├── tests/                    # 141 testes (pytest) — os de schema/RLS pulam sem DATABASE_URL, rodam de verdade no CI
 ├── .env.example              # Template de variáveis — .env local fica só com config não-sensível (ex: FRONTEND_ORIGINS); credenciais reais vivem em GitHub Secrets
 └── .claude/sdd/               # Documentos do workflow SDD (features/, reports/, archive/)
 ```
@@ -106,19 +120,22 @@ TaxReformAI/
 | `.claude/sdd/archive/PIPELINE_INGESTAO_LEGAL/SHIPPED_2026-07-24.md` | Lições da primeira feature de ingestão — padrão `Protocol` real/fake (`RawStorage`/`LegalSource`) que se repetiu em todas as features seguintes |
 | `.claude/sdd/archive/INGESTAO_TCU_E_ETL_AIRFLOW/SHIPPED_2026-07-24.md` | Lições aprendidas da feature TCU/Airflow — bugs reais de parsing de PDF (referência cruzada, bloco de assinatura) só apareceram contra o documento real |
 | `dags/ingestao_legal_dag.py` | DAG real do Airflow/Cloud Composer que substitui `pipeline.py` como orquestrador — não executável neste sandbox, só revisão de código |
+| `.claude/sdd/archive/SCHEMA_POSTGRESQL/SHIPPED_2026-07-27.md` | Lições da feature do schema — a mais cara: nenhum papel no Cloud SQL (nem `postgres`) é superusuário de verdade, diferente de Postgres autogerido; qualquer config de papel testada só contra Postgres genérico merece diagnóstico direto contra o serviço gerenciado antes de assumir paridade |
+| `motor_calculo/regime_atual.py` | PIS/COFINS + ICMS interestadual — ponto de entrada do regime vigente, `TabelaPisCofins().buscar(regime)` e `icms_interestadual(uf_origem, uf_destino, bem_importado=...)` |
+| `db/repositorio.py` | Ponto de entrada do acesso a dados — `sessao_do_tenant()` é o único jeito correto de tocar tabelas com RLS |
 
 ## Convenções
 
-- **Linter:** `ruff` (`ruff check .` — configurado e limpo)
+- **Linter:** `ruff` (`ruff check .` — configurado e limpo; `pyproject.toml` declara `select` explícito desde 2026-07-25, para não depender do default de cada versão instalada)
 - **Formatter:** não configurado explicitamente (código segue `ruff format` implicitamente)
-- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (74 testes, todos passando)
+- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (141 testes; os de `db/` pulam sem `DATABASE_URL`, rodam de verdade no CI contra um container `postgres:16`)
 
 ## Como rodar
 
 ```bash
 pip install -r requirements.txt   # set completo (dev/CI); qdrant-client, google-cloud-storage, fastembed, typer, apache-airflow não instaláveis neste sandbox — ver BUILD_REPORTs
-pip install -r requirements-api.txt # só o runtime da API (fastapi/uvicorn/pydantic) — é o que a imagem do Cloud Run instala
-python3 -m pytest tests/ -v        # roda os 74 testes sem precisar de nenhuma credencial (usa fakes); exige poppler-utils (pdftotext) no sistema para os testes do TCUScraper
+pip install -r requirements-api.txt # só o runtime da API (fastapi/uvicorn/pydantic/psycopg) — é o que a imagem do Cloud Run instala
+python3 -m pytest tests/ -v        # roda os testes sem precisar de nenhuma credencial (usa fakes, e pula os de schema sem DATABASE_URL); exige poppler-utils (pdftotext) no sistema para os testes do TCUScraper
 ```
 
 **Política do projeto: infraestrutura real nunca roda local.** `.env` local é só para o que os testes fake precisam (hoje, nada de credencial real) — nunca para disparar a pipeline de ingestão contra GCS/Qdrant reais na sua máquina. Credenciais reais (`GCP_PROJECT_ID`, `GCS_BUCKET_NAME`, `GCP_SA_KEY`, `QDRANT_URL`, `QDRANT_API_KEY`) vivem em **GitHub Secrets** do repositório e são consumidas por workflows (`terraform.yml` já aplicou o bucket GCS real; a execução da pipeline de ingestão em si ainda depende de `dags/ingestao_legal_dag.py` rodar num Cloud Composer real, ou de um workflow `workflow_dispatch` equivalente). O motor de cálculo (`motor_calculo/`) não precisa de nenhuma infraestrutura — roda direto, local ou não.
@@ -133,10 +150,9 @@ python3 -m pytest tests/ -v        # roda os 74 testes sem precisar de nenhuma c
 
 Secrets necessários: `GCP_PROJECT_ID`, `GCP_DEPLOYER_SA_KEY` (SA `taxreformai-deployer`, escopada — não reusar `GCP_SA_KEY`, que é do Terraform) e `API_KEYS` (JSON `{"chave":"tenant_id"}`). O `tenant_id` do corpo de `POST /v1/tax/simulate` precisa bater com o da credencial, senão a resposta é **403**.
 
-## Runbook — estado atual
+## Estado do runbook
 
-**A aplicação está no ar.** Primeiro deploy real verde em 2026-07-25 (run `30157204455`), com
-smoke test passando. Serviços públicos:
+**A aplicação está no ar e persiste dados de verdade.** Serviços públicos:
 
 | Serviço | URL |
 |---------|-----|
@@ -144,26 +160,40 @@ smoke test passando. Serviços públicos:
 | Frontend | `https://taxreformai-frontend-as2g43xasa-rj.a.run.app` |
 
 Identidade de runtime: `taxreformai-runtime@taxreformai-dev.iam.gserviceaccount.com`,
-deliberadamente **sem role nenhuma** — nem a API nem o frontend acessam GCP em runtime.
+deliberadamente **sem role de projeto** — só `roles/cloudsql.client` e leitura do próprio secret
+de senha, o mínimo para falar com o Cloud SQL. Nem API nem frontend acessam mais nada no GCP em
+runtime.
 
-| # | Passo | Onde | Status | Por que importa |
-|---|-------|------|--------|-----------------|
-| 1 | Terraform apply (AR + SA de deploy) | GitHub Actions | ✅ Feito | AR criado 15:40; SA `taxreformai-deployer` existe |
-| 2 | Chave JSON da SA → `GCP_DEPLOYER_SA_KEY` | GitHub Secrets | ✅ Feito | Cadastrado 18:48 |
-| 3 | Secret `API_KEYS` (JSON `{"chave":"tenant_id"}`) | GitHub Secrets | ✅ Feito | Sem ele o serviço sobe respondendo 401 para tudo — mas **200 em `/health`** |
-| 4 | `deploy.yml` com `target=both`, `confirm=DEPLOY` | GitHub Actions | ✅ **Verde** (run 30157204455) | Primeiro deploy real. Fecha AT-001/002/006 se o smoke test passar |
-| 5 | `ingestao.yml` com `fonte=planalto`, `confirm=INGERIR` | GitHub Actions | ⬜ | Escreve em GCS + Qdrant reais. Fecha o critério E2E da busca híbrida, pendente desde o ship de `PIPELINE_INGESTAO_LEGAL` |
-| 6 | `/ship .claude/sdd/features/DEFINE_DEPLOY_CLOUD_RUN.md` | Local | ⬜ | Só depois do passo 4 verde — shipar antes repetiria o erro de `PIPELINE_INGESTAO_LEGAL` (arquivada com o critério central nunca verificado) |
+## Banco de dados (Cloud SQL)
 
-Os passos 4 e 5 **gastam dinheiro de verdade** e só rodam por `workflow_dispatch`. O 5 baixa o
-modelo denso (~2GB) e tem timeout de 45 min.
+Instância `taxreformai-pg` (PostgreSQL 16, `db-f1-micro`, `southamerica-east1`), schema aplicado e
+API conectada — ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/`.
 
-**Dois defeitos só apareceram contra infraestrutura real**, nenhum detectável por lint, teste ou
-revisão de código: (a) Terraform e `deploy.yml` discordavam sobre a identidade de runtime —
-`iam.serviceaccounts.actAs` negado na SA de compute padrão; (b) o **Google Front End intercepta o
-path exato `/healthz`** em domínios `*.run.app` e devolve o próprio 404 em HTML, sem a requisição
-chegar no contêiner — por isso a rota de saúde é `/health`. Detalhes e caracterização em
-`.claude/sdd/reports/BUILD_REPORT_DEPLOY_CLOUD_RUN.md`, seção "Execução real do runbook".
+- **Dois papéis**: `taxreformai_admin` (migrações — `migrar_banco.yml`, guarda `MIGRAR`) e
+  `taxreformai_app` (runtime da API, privilégio mínimo — `db/migrations/003_papel_da_aplicacao.sql`).
+  Senhas geradas pelo Terraform, vivem no Secret Manager (`taxreformai-pg-admin-password`,
+  `taxreformai-pg-app-password`), nunca em texto plano em workflow.
+- **RLS isola tenants de verdade**, provado contra o Cloud SQL real (não só inferido) por
+  `scripts/verificar_rls_producao.py`, rodável via `migrar_banco.yml` (`verificar_rls=sim`).
+- **Achado que vale lembrar**: nenhum papel no Cloud SQL — nem `postgres` — tem `rolsuper=true`.
+  A migração 003 tentou originalmente revogar `SUPERUSER`/`BYPASSRLS`, o que é impossível de
+  executar lá (só quem já é superusuário pode tocar esse atributo) e desnecessário (a plataforma
+  nunca concede o bit). Ver a Lição 3 do SHIPPED da feature antes de portar qualquer config de
+  papel testada só contra Postgres genérico.
+- **Audit log gravando em produção**, confirmado por consulta separada depois do smoke test do
+  deploy (`deploy.yml`, passo "Verificar que o audit log foi gravado de verdade").
+
+## Regime tributário vigente (`motor_calculo/regime_atual.py`)
+
+Ao lado do IVA Dual da reforma (`engine.py`), calcula o que já é devido hoje — necessário porque a
+compensação do art. 348 (2026, ver `AliquotaNaoDisponivelError`/`Compensacao` na API) só faz
+sentido se PIS/COFINS também estiverem calculados. Todas as 7 alíquotas foram lidas do texto oficial
+do Planalto/LexML, nunca de memória (Leis 10.637/2002, 10.833/2003, 9.715/1998, 9.718/1998;
+Resoluções do Senado 22/1989 e 13/2012). `regime_apuracao` no payload de `/v1/tax/simulate` é
+opcional sem default — `None` significa "não informado", nunca "presume-se X".
+
+Fora de escopo, mesma razão do SPED/IBPT: **IPI** (tabela TIPI por NCM, dado tabular) e **ICMS
+interno/ISS** (27 estados e milhares de municípios, sem norma única para citar).
 
 ---
 
@@ -178,7 +208,7 @@ chegar no contêiner — por isso a rota de saúde é `/health`. Detalhes e cara
 | `@gcp-data-architect` / `@ai-data-engineer-gcp` | Implementar a infraestrutura GCP (GCS, bucket) | ✅ Terraform aplicado de verdade — bucket `taxreformai-dev-legal-docs` real no projeto `taxreformai-dev` |
 | `@genai-architect` | Desenhar/evoluir a orquestração multi-agente (LangGraph) e o roteamento de modelos Claude (seção 3) | ✅ Grafo shipado com fakes; falta conectar LLMs reais e instalar `langgraph` de verdade |
 | `@airflow-specialist` | Construir as DAGs de scraping do DOU/RFB/Comitê IBS (seção 4.2) — hoje o pipeline roda como CLI simples, não como DAG | 🔄 `dags/ingestao_legal_dag.py` escrito com TaskFlow API real (Planalto + TCU); `apache-airflow` não instala neste sandbox — não executável, só revisão de código até haver Cloud Composer real |
-| `@database-reviewer` | Schema PostgreSQL (multi-tenancy, audit log, cache de regras tributárias, seção 7) | ⏳ Não iniciado |
+| `@database-reviewer` | Schema PostgreSQL (multi-tenancy, audit log, cache de regras tributárias, seção 7) | ✅ Shipado — RLS provado contra Cloud SQL real, conectado à API |
 | `@typescript-reviewer` | Frontend Next.js | ⏳ Não iniciado |
 | **`@security-reviewer`** | **Sempre que houver manuseio de dados sensíveis (PII, CNPJ/CPF, multi-tenancy)** | **Já relevante** — `orquestracao/nos/classificador.py` mascara CPF/CNPJ; um bug de vazamento de PII no histórico auditável já foi encontrado e corrigido durante o build (ver `.claude/sdd/archive/ORQUESTRACAO_MULTIAGENTE/SHIPPED_2026-07-23.md`) — vale uma revisão de segurança dedicada antes de conectar dados reais de usuários |
 | `@code-reviewer` | Sempre, após qualquer implementação de código | Recomendado para a próxima feature também |
@@ -197,4 +227,4 @@ chegar no contêiner — por isso a rota de saúde é `/health`. Detalhes e cara
 
 ---
 
-_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn` (mascarado por estarem instalados globalmente neste sandbox); `gh run list` mostrava falha nos dois runs anteriores e ninguém tinha checado. CI está verde pela primeira vez desde que foi criado. Revisão pós-build de `DEPLOY_CLOUD_RUN` (mesmo dia) varreu o que o build não cobria (`ingestao.yml`, `scripts/`, os dois Dockerfiles) e achou 4 defeitos reais — 3 deles quebrariam a primeira execução cobrável na nuvem: point id do Qdrant que não era UUID, CLI `typer` achatada rejeitando o próprio comando documentado, e `COPY /app/public` sobre diretório inexistente. Ver a seção "Revisão pós-build" em `.claude/sdd/reports/BUILD_REPORT_DEPLOY_CLOUD_RUN.md`._
+_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn`. Revisão pós-build de `DEPLOY_CLOUD_RUN` (2026-07-25) achou 4 defeitos reais — point id do Qdrant que não era UUID, CLI `typer` achatada, `COPY /app/public` sobre diretório inexistente e a discordância de identidade de runtime entre Terraform e `deploy.yml` — e o primeiro deploy real ficou verde no mesmo dia, junto com o ship do CGIBS/RFB como 3ª e 4ª fontes legais e a verificação E2E da busca híbrida (6866 pontos indexados, Bloco A 5/5 filtrado por documento). Atualizado em 2026-07-27 após o build/ship de `SCHEMA_POSTGRESQL`: schema da seção 7 aplicado no Cloud SQL real, RLS provado (não só inferido) contra a instância real, regime tributário vigente (PIS/COFINS/ICMS interestadual) com 7 alíquotas citadas por artigo, e a API deployada gravando audit log de verdade — achado mais caro da feature foi que nenhum papel no Cloud SQL, nem `postgres`, é superusuário de verdade, ao contrário de Postgres autogerido. Ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/SHIPPED_2026-07-27.md`._
