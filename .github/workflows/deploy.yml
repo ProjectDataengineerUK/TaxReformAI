@@ -24,6 +24,11 @@ env:
   SERVICE_API: taxreformai-api
   SERVICE_FRONTEND: taxreformai-frontend
   CLOUDSQL_CONNECTION_NAME: taxreformai-dev:southamerica-east1:taxreformai-pg
+  # `python scripts/x.py` põe scripts/ no sys.path, não a raiz do repo — sem
+  # isto, "Verificar que o audit log foi gravado de verdade" quebraria com
+  # ModuleNotFoundError ao importar db.repositorio (mesmo bug já corrigido em
+  # ingestao.yml).
+  PYTHONPATH: ${{ github.workspace }}
 
 jobs:
   deploy:
@@ -36,6 +41,18 @@ jobs:
           exit 1
 
       - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      # Só psycopg[binary], não `-r requirements.txt`: este job builda imagens
+      # Docker, não roda a suíte de testes — puxar fastembed/onnxruntime/
+      # qdrant-client aqui seria peso sem uso, só para um script que faz um
+      # SELECT.
+      - name: Instalar psycopg (para a verificação do audit log)
+        run: pip install "psycopg[binary]>=3.2"
 
       - uses: google-github-actions/auth@v2
         with:
