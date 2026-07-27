@@ -22,6 +22,8 @@ from motor_calculo.regime_atual import (
     TRIBUTOS_INDISPONIVEIS,
     TabelaPisCofins,
     icms_interestadual,
+    icms_interno,
+    iss_faixa,
 )
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from motor_calculo.tabela_aliquotas import TabelaAliquotasSeed
@@ -88,6 +90,14 @@ def simular(
     total_pis = Decimal(0) if regra_pis_cofins else None
     total_cofins = Decimal(0) if regra_pis_cofins else None
     total_icms_interestadual = Decimal(0)
+    total_icms_interno = Decimal(0)
+    total_icms_interno_fecp = Decimal(0)
+    total_iss_piso = Decimal(0)
+    total_iss_teto = Decimal(0)
+    # Acumula o que de fato apareceu em algum item, para o escopo declarar só
+    # o que a resposta realmente contém — mesma razão de `regra_pis_cofins`
+    # ser opcional em vez de assumido.
+    tributos_regime_vigente_incluidos: set[str] = set()
 
     for item in payload.itens:
         valor_base_item = item.valor_unitario * item.quantidade
@@ -112,17 +122,64 @@ def simular(
             )
         )
 
-        icms = icms_interestadual(
-            item.uf_origem, item.uf_destino, bem_importado=item.bem_importado
-        )
-        total_icms_interestadual += (icms.aliquota * valor_base_item).quantize(
-            Decimal("0.01"), rounding=ROUND_HALF_UP
-        )
-        item_regime = ItemRegimeVigente(
-            sku=item.sku,
-            icms_interestadual_percentual=icms.aliquota * 100,
-            fonte_legal_icms=icms.fonte_legal,
-        )
+        item_regime = ItemRegimeVigente(sku=item.sku, natureza=item.natureza)
+
+        if item.natureza == "SERVICO":
+            # ICMS e ISS são bases mutuamente exclusivas — um item de serviço
+            # nunca paga ICMS neste motor. Só piso/teto: LC 116/2003 não fixa
+            # a alíquota exata de nenhum dos 5.570 municípios.
+            faixa = iss_faixa()
+            total_iss_piso += (valor_base_item * faixa.piso).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            total_iss_teto += (valor_base_item * faixa.teto).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            item_regime = item_regime.model_copy(
+                update={
+                    "iss_piso_percentual": faixa.piso * 100,
+                    "iss_teto_percentual": faixa.teto * 100,
+                    "fonte_legal_iss_piso": faixa.fonte_legal_piso,
+                    "fonte_legal_iss_teto": faixa.fonte_legal_teto,
+                }
+            )
+            tributos_regime_vigente_incluidos.add("ISS")
+        elif item.uf_origem.upper() == item.uf_destino.upper():
+            # Mesma UF de origem e destino: operação INTERNA, não
+            # interestadual — a Resolução do Senado 22/1989 rege só o
+            # deslocamento entre estados diferentes. Usar `icms_interestadual`
+            # aqui seria citar a norma errada para a operação.
+            icms_int = icms_interno(item.uf_origem)
+            total_icms_interno += (icms_int.aliquota * valor_base_item).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            update = {
+                "icms_interno_percentual": icms_int.aliquota * 100,
+                "fonte_legal_icms_interno": icms_int.fonte_legal,
+            }
+            if icms_int.fecp is not None:
+                total_icms_interno_fecp += (icms_int.fecp * valor_base_item).quantize(
+                    Decimal("0.01"), rounding=ROUND_HALF_UP
+                )
+                update["icms_interno_fecp_percentual"] = icms_int.fecp * 100
+                update["fonte_legal_icms_interno_fecp"] = icms_int.fonte_legal_fecp
+            item_regime = item_regime.model_copy(update=update)
+            tributos_regime_vigente_incluidos.add("ICMS_INTERNO")
+        else:
+            icms = icms_interestadual(
+                item.uf_origem, item.uf_destino, bem_importado=item.bem_importado
+            )
+            total_icms_interestadual += (icms.aliquota * valor_base_item).quantize(
+                Decimal("0.01"), rounding=ROUND_HALF_UP
+            )
+            item_regime = item_regime.model_copy(
+                update={
+                    "icms_interestadual_percentual": icms.aliquota * 100,
+                    "fonte_legal_icms": icms.fonte_legal,
+                }
+            )
+            tributos_regime_vigente_incluidos.add("ICMS_INTERESTADUAL")
+
         if regra_pis_cofins is not None:
             # Mesma disciplina de arredondamento do engine (ROUND_HALF_UP,
             # centavos) — inconsistência aqui seria erro de cálculo silencioso
@@ -146,26 +203,34 @@ def simular(
         itens_regime_vigente.append(item_regime)
 
     # Durante a transição os tributos do regime antigo continuam devidos. O
-    # escopo é dinâmico porque PIS/COFINS entram quando regime_apuracao é
-    # informado — declarar um escopo fixo voltaria a esconder o que a
-    # resposta de fato contém.
-    tributos_incluidos = ["CBS", "IBS", "IS", "ICMS_INTERESTADUAL"]
-    tributos_nao_calculados = list(TRIBUTOS_INDISPONIVEIS)
+    # escopo é dinâmico: ICMS_INTERESTADUAL/ICMS_INTERNO/ISS dependem de quais
+    # naturezas/UFs apareceram nos itens (mutuamente exclusivos por item), e
+    # PIS/COFINS de `regime_apuracao` ter sido informado — declarar um escopo
+    # fixo voltaria a esconder o que a resposta de fato contém. IPI continua
+    # sempre ausente (`TRIBUTOS_INDISPONIVEIS`): é o único tributo deste
+    # módulo que o motor é estruturalmente incapaz de calcular (tabela TIPI
+    # por NCM, dado tabular sem alíquota única para citar).
+    tributos_incluidos = ["CBS", "IBS", "IS", *sorted(tributos_regime_vigente_incluidos)]
+    tributos_nao_calculados = sorted(
+        set(TRIBUTOS_INDISPONIVEIS)
+        | ({"ICMS_INTERESTADUAL", "ICMS_INTERNO", "ISS"} - tributos_regime_vigente_incluidos)
+    )
     if regra_pis_cofins is not None:
         tributos_incluidos.extend(["PIS", "COFINS"])
     else:
-        tributos_nao_calculados = ["PIS", "COFINS", *tributos_nao_calculados]
+        tributos_nao_calculados = sorted([*tributos_nao_calculados, "PIS", "COFINS"])
 
     escopo = EscopoSimulacao(
         tributos_incluidos=tributos_incluidos,
         tributos_nao_incluidos=tributos_nao_calculados,
         advertencia=(
             "Projeção do IVA Dual (CBS/IBS/IS) mais o regime vigente calculável sem "
-            "dado externo (PIS/COFINS quando regime_apuracao é informado; ICMS "
-            "interestadual). NÃO inclui IPI (tabela TIPI por NCM), ICMS interno nem "
-            "ISS — dependem de legislação estadual/municipal ou tabela sem norma "
-            "federal única para citar; o valor líquido não representa a carga "
-            "tributária total da operação."
+            "dado externo: PIS/COFINS quando regime_apuracao é informado; ICMS "
+            "interestadual ou interno conforme uf_origem/uf_destino de cada item; "
+            "ISS (só piso 2%/teto 5% da LC 116/2003, não a alíquota municipal "
+            "exata) para itens com natureza=SERVICO. NÃO inclui IPI (tabela TIPI "
+            "por NCM, sem alíquota única para citar). O valor líquido não "
+            "representa a carga tributária total da operação."
         ),
     )
 
@@ -189,6 +254,10 @@ def simular(
             total_pis=total_pis,
             total_cofins=total_cofins,
             total_icms_interestadual=total_icms_interestadual,
+            total_icms_interno=total_icms_interno,
+            total_icms_interno_fecp=total_icms_interno_fecp,
+            total_iss_piso=total_iss_piso,
+            total_iss_teto=total_iss_teto,
             tributos_nao_calculados=tributos_nao_calculados,
         ),
         itens_regime_vigente=itens_regime_vigente,

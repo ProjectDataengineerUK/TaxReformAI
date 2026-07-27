@@ -91,7 +91,7 @@ TaxReformAI/
 │   ├── regras_fiscais.py       # RegraFiscal (alíquota `Decimal | None` + fonte por tributo) + AliquotaNaoDisponivelError
 │   ├── tabela_aliquotas.py      # TabelaAliquotas (Protocol) + seed com artigos reais (2026 completo, 2027-28 parcial)
 │   ├── engine.py                 # TaxCalculatorEngine — CBS/IBS/IS (reforma)
-│   └── regime_atual.py            # PIS/COFINS + ICMS interestadual (regime VIGENTE) — 7 alíquotas, cada uma citada por artigo real; IPI/ICMS interno/ISS deliberadamente fora (dado tabular ou sem norma única)
+│   └── regime_atual.py            # PIS/COFINS + ICMS interestadual + ICMS interno (27 UFs) + ISS piso/teto (regime VIGENTE) — cada alíquota citada por artigo real; só IPI fora (dado tabular, sem norma única)
 ├── db/                        # SCHEMA_POSTGRESQL — schema real no Cloud SQL (taxreformai-pg)
 │   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app)
 │   ├── migrador.py               # Runner idempotente, sem ORM
@@ -187,13 +187,25 @@ API conectada — ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/`.
 
 Ao lado do IVA Dual da reforma (`engine.py`), calcula o que já é devido hoje — necessário porque a
 compensação do art. 348 (2026, ver `AliquotaNaoDisponivelError`/`Compensacao` na API) só faz
-sentido se PIS/COFINS também estiverem calculados. Todas as 7 alíquotas foram lidas do texto oficial
-do Planalto/LexML, nunca de memória (Leis 10.637/2002, 10.833/2003, 9.715/1998, 9.718/1998;
-Resoluções do Senado 22/1989 e 13/2012). `regime_apuracao` no payload de `/v1/tax/simulate` é
-opcional sem default — `None` significa "não informado", nunca "presume-se X".
+sentido se PIS/COFINS também estiverem calculados. Todas as alíquotas foram lidas do texto oficial
+do Planalto/LexML (PIS/COFINS, ICMS interestadual) ou do RICMS/lei de cada UF (ICMS interno), nunca
+de memória (Leis 10.637/2002, 10.833/2003, 9.715/1998, 9.718/1998; Resoluções do Senado 22/1989 e
+13/2012). `regime_apuracao` no payload de `/v1/tax/simulate` é opcional sem default — `None`
+significa "não informado", nunca "presume-se X".
 
-Fora de escopo, mesma razão do SPED/IBPT: **IPI** (tabela TIPI por NCM, dado tabular) e **ICMS
-interno/ISS** (27 estados e milhares de municípios, sem norma única para citar).
+**ICMS interno e ISS — adicionados em 2026-07-27**, revertendo a premissa original de que eram um
+"limite estrutural" sem fonte citável: `icms_interno(uf)` cobre a alíquota GERAL/modal das 27 UFs
+(verificação individual contra o RICMS/lei de cada estado — não existe agregador federal tipo
+CONFAZ), incluindo FECP separado onde existe (RJ +2%, SE +1%, com base legal própria distinta do
+ICMS); `iss_faixa()` cobre o piso (2%) e teto (5%) federais do ISS (LC 116/2003, arts. 8º-A e 8º).
+Nenhum dos dois cobre exceção por mercadoria/serviço específico (cesta básica, combustíveis etc.) —
+mesma limitação estrutural do IPI/TIPI. **Ainda não plugados em `/v1/tax/simulate`**: o endpoint
+segue declarando os dois em `tributos_nao_incluidos` porque falta decidir como o payload sinaliza
+operação interna vs. interestadual e mercadoria vs. serviço (`operacao_tipo` é string livre, não
+enum) — candidato para o próximo ciclo.
+
+Fora de escopo, mesma razão do SPED/IBPT: **IPI** (tabela TIPI por NCM, dado tabular, sem alíquota
+única para citar).
 
 ---
 

@@ -157,3 +157,142 @@ def test_valor_liquido_continua_exposto_mas_agora_qualificado(resposta_2026):
     assert corpo["resumo_financeiro"]["valor_liquido_projetado_split_payment"] == "99.00"
     assert corpo["compensacao"]["aplicavel"] is True
     assert corpo["escopo"]["advertencia"]
+
+
+# ICMS interno e ISS — 2026-07-27, ver motor_calculo/regime_atual.py --------
+
+
+def test_api_usa_icms_interno_quando_uf_origem_e_destino_sao_iguais(client):
+    """SP -> SP não é interestadual: a Resolução 22/1989 não rege isso, e
+    usá-la citaria a norma errada. O endpoint precisa trocar para
+    icms_interno() sozinho, só olhando uf_origem == uf_destino."""
+    resposta = client.post(
+        "/v1/tax/simulate",
+        headers={"X-API-Key": CHAVE},
+        json={
+            "tenant_id": TENANT,
+            "ano_operacao": 2026,
+            "operacao_tipo": "VENDA",
+            "itens": [
+                {
+                    "sku": "T-1",
+                    "ncm": "22030000",
+                    "quantidade": 1,
+                    "valor_unitario": "100.00",
+                    "uf_origem": "SP",
+                    "uf_destino": "SP",
+                }
+            ],
+        },
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    item = corpo["itens_regime_vigente"][0]
+
+    assert item["icms_interno_percentual"] == "18.00"
+    assert "52" in item["fonte_legal_icms_interno"]
+    assert item["icms_interestadual_percentual"] is None
+    assert corpo["regime_vigente"]["total_icms_interno"] == "18.00"
+    assert "ICMS_INTERNO" in corpo["escopo"]["tributos_incluidos"]
+    assert "ICMS_INTERESTADUAL" in corpo["escopo"]["tributos_nao_incluidos"]
+
+
+def test_api_icms_interno_rio_de_janeiro_expoe_fecp_separado(client):
+    """FECP tem base legal própria (LC Estadual 210/2023) — não pode ficar
+    somado silenciosamente dentro de icms_interno_percentual."""
+    resposta = client.post(
+        "/v1/tax/simulate",
+        headers={"X-API-Key": CHAVE},
+        json={
+            "tenant_id": TENANT,
+            "ano_operacao": 2026,
+            "operacao_tipo": "VENDA",
+            "itens": [
+                {
+                    "sku": "T-1",
+                    "ncm": "22030000",
+                    "quantidade": 1,
+                    "valor_unitario": "100.00",
+                    "uf_origem": "RJ",
+                    "uf_destino": "RJ",
+                }
+            ],
+        },
+    )
+
+    corpo = resposta.json()
+    item = corpo["itens_regime_vigente"][0]
+
+    assert item["icms_interno_percentual"] == "20.00"
+    assert item["icms_interno_fecp_percentual"] == "2.00"
+    assert "210/2023" in item["fonte_legal_icms_interno_fecp"]
+    assert corpo["regime_vigente"]["total_icms_interno_fecp"] == "2.00"
+
+
+def test_api_natureza_servico_calcula_iss_em_vez_de_icms(client):
+    """natureza=SERVICO troca a base de ICMS para o piso/teto do ISS — as
+    duas nunca coexistem no mesmo item."""
+    resposta = client.post(
+        "/v1/tax/simulate",
+        headers={"X-API-Key": CHAVE},
+        json={
+            "tenant_id": TENANT,
+            "ano_operacao": 2026,
+            "operacao_tipo": "PRESTACAO_SERVICO",
+            "itens": [
+                {
+                    "sku": "T-1",
+                    "ncm": "00000000",
+                    "quantidade": 1,
+                    "valor_unitario": "100.00",
+                    "uf_origem": "SP",
+                    "uf_destino": "SP",
+                    "natureza": "SERVICO",
+                }
+            ],
+        },
+    )
+
+    assert resposta.status_code == 200
+    corpo = resposta.json()
+    item = corpo["itens_regime_vigente"][0]
+
+    assert item["iss_piso_percentual"] == "2.00"
+    assert item["iss_teto_percentual"] == "5.00"
+    assert "116/2003" in item["fonte_legal_iss_piso"]
+    assert item["icms_interno_percentual"] is None
+    assert item["icms_interestadual_percentual"] is None
+    assert corpo["regime_vigente"]["total_iss_piso"] == "2.00"
+    assert corpo["regime_vigente"]["total_iss_teto"] == "5.00"
+    assert "ISS" in corpo["escopo"]["tributos_incluidos"]
+    assert "ICMS_INTERNO" in corpo["escopo"]["tributos_nao_incluidos"]
+    assert "ICMS_INTERESTADUAL" in corpo["escopo"]["tributos_nao_incluidos"]
+
+
+def test_api_natureza_mercadoria_e_o_default_sem_o_campo(client):
+    """Payload sem `natureza` precisa continuar se comportando exatamente
+    como antes deste campo existir — retrocompatibilidade."""
+    resposta = client.post(
+        "/v1/tax/simulate",
+        headers={"X-API-Key": CHAVE},
+        json={
+            "tenant_id": TENANT,
+            "ano_operacao": 2026,
+            "operacao_tipo": "VENDA",
+            "itens": [
+                {
+                    "sku": "T-1",
+                    "ncm": "22030000",
+                    "quantidade": 1,
+                    "valor_unitario": "100.00",
+                    "uf_origem": "SP",
+                    "uf_destino": "RJ",
+                }
+            ],
+        },
+    )
+
+    corpo = resposta.json()
+    assert corpo["itens_regime_vigente"][0]["natureza"] == "MERCADORIA"
+    assert corpo["itens_regime_vigente"][0]["icms_interestadual_percentual"] == "12.00"

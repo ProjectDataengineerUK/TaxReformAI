@@ -1,4 +1,5 @@
 from decimal import Decimal
+from typing import Literal
 
 from pydantic import BaseModel, Field
 
@@ -16,6 +17,13 @@ class ItemSimulacao(BaseModel):
     # 12%/7%). Default False é a maioria dos casos, não uma estimativa: a
     # alíquota de 4% só se aplica com este sinal explícito.
     bem_importado: bool = False
+    # Decide ICMS x ISS — bases mutuamente exclusivas no direito brasileiro.
+    # Default MERCADORIA preserva o comportamento de todo payload existente
+    # antes deste campo existir (só ICMS era calculado). `ncm` continua
+    # obrigatório mesmo para SERVICO porque não é usado em nenhum cálculo
+    # (só carregado para exibição em `ItemDetalhado`) — não há conflito
+    # semântico em deixá-lo como está.
+    natureza: Literal["MERCADORIA", "SERVICO"] = "MERCADORIA"
 
 
 class PayloadSimulacao(BaseModel):
@@ -78,13 +86,34 @@ class Compensacao(BaseModel):
 
 
 class ItemRegimeVigente(BaseModel):
-    """ICMS interestadual é calculado sempre — uf_origem/uf_destino são
-    obrigatórios no payload. PIS/COFINS só quando `regime_apuracao` foi
-    informado; None aqui significa "não calculado", não "zero"."""
+    """Exatamente um dos três blocos de ICMS/ISS é preenchido por item, nunca
+    mais de um — são bases mutuamente exclusivas (mercadoria interestadual x
+    mercadoria interna x serviço). `None` num bloco significa "não se aplica
+    a este item", não "zero". PIS/COFINS só quando `regime_apuracao` foi
+    informado no payload."""
 
     sku: str
-    icms_interestadual_percentual: Decimal
-    fonte_legal_icms: str
+    natureza: str
+
+    # Mercadoria, uf_origem != uf_destino.
+    icms_interestadual_percentual: Decimal | None = None
+    fonte_legal_icms: str | None = None
+
+    # Mercadoria, uf_origem == uf_destino. `fecp` só existe nos estados que
+    # cobram o adicional (ex.: RJ +2%, SE +1%) — base legal própria,
+    # distinta do ICMS, por isso citada à parte.
+    icms_interno_percentual: Decimal | None = None
+    fonte_legal_icms_interno: str | None = None
+    icms_interno_fecp_percentual: Decimal | None = None
+    fonte_legal_icms_interno_fecp: str | None = None
+
+    # Serviço — piso/teto federais (LC 116/2003), não a alíquota municipal
+    # exata (nenhuma norma única cobre os 5.570 municípios).
+    iss_piso_percentual: Decimal | None = None
+    iss_teto_percentual: Decimal | None = None
+    fonte_legal_iss_piso: str | None = None
+    fonte_legal_iss_teto: str | None = None
+
     pis_percentual: Decimal | None = None
     cofins_percentual: Decimal | None = None
     fonte_legal_pis: str | None = None
@@ -95,9 +124,15 @@ class RegimeVigenteResumo(BaseModel):
     regime_apuracao: str | None = None
     total_pis: Decimal | None = None
     total_cofins: Decimal | None = None
-    total_icms_interestadual: Decimal
-    # Sempre inclui IPI, ICMS_INTERNO, ISS (TRIBUTOS_INDISPONIVEIS); mais
-    # PIS/COFINS quando regime_apuracao não foi informado no payload.
+    total_icms_interestadual: Decimal = Decimal(0)
+    total_icms_interno: Decimal = Decimal(0)
+    total_icms_interno_fecp: Decimal = Decimal(0)
+    # Faixa, não valor único — ISS não tem alíquota municipal exata neste motor.
+    total_iss_piso: Decimal = Decimal(0)
+    total_iss_teto: Decimal = Decimal(0)
+    # Sempre inclui IPI; mais ICMS_INTERESTADUAL/ICMS_INTERNO/ISS quando
+    # nenhum item do payload disparou aquele cálculo, mais PIS/COFINS quando
+    # regime_apuracao não foi informado.
     tributos_nao_calculados: list[str]
 
 
