@@ -17,6 +17,14 @@ on:
         options:
           - "sim"
           - "nao"
+      ingerir_tipi:
+        description: "Baixar a TIPI oficial da RFB e gravar as ~9200 alíquotas de IPI por NCM"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -41,6 +49,11 @@ jobs:
 
       - name: Instalar dependências
         run: pip install -r requirements.txt
+
+      # pdftotext, só necessário quando ingerir_tipi=sim — mas instalar sempre
+      # é mais simples que condicionar um apt-get, e o custo é baixo.
+      - name: Instalar poppler-utils (pdftotext)
+        run: sudo apt-get update && sudo apt-get install -y poppler-utils
 
       - uses: google-github-actions/auth@v2
         with:
@@ -89,6 +102,15 @@ jobs:
         run: |
           export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/popular_tenants.py
+
+      # TIPI é dado tabular público (Decreto 11.158/2022), não legislação com
+      # hierarquia de artigos — vai para o Postgres, não para o Qdrant. ~9200
+      # códigos NCM, upsert idempotente (reingerir atualiza, não duplica).
+      - name: Ingerir tabela TIPI (IPI por NCM)
+        if: ${{ inputs.ingerir_tipi == 'sim' }}
+        run: |
+          export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/ingerir_tipi.py
 
       # Prova RLS contra o Cloud SQL real, não só infere do diagnóstico de
       # atributos: cria 2 tenants de teste, grava um parecer para cada,
