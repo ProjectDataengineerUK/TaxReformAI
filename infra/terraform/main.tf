@@ -311,6 +311,17 @@ resource "google_secret_manager_secret_iam_member" "runtime_le_senha_app" {
   member    = "serviceAccount:${google_service_account.runtime_sa.email}"
 }
 
+# A verificação pós-deploy (deploy.yml) só faz SELECT em pareceres_audit_log
+# dentro da sessão do próprio tenant — não precisa do papel admin, então lê a
+# senha do app, não a do admin. Least privilege: a SA de deploy nunca ganha
+# acesso à credencial que pode alterar schema.
+resource "google_secret_manager_secret_iam_member" "deployer_le_senha_app" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.pg_app_password.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.deployer_sa.email}"
+}
+
 output "cloudsql_connection_name" {
   value = google_sql_database_instance.principal.connection_name
 }

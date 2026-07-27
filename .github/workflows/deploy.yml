@@ -245,8 +245,12 @@ jobs:
             sleep 1
           done
 
-          PG_ADMIN_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-admin-password --project=taxreformai-dev)
-          export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5433/taxreformai"
+          # Senha do papel APP, não do admin: esta verificação só faz SELECT
+          # dentro da sessão do próprio tenant — não precisa de privilégio
+          # nenhum que o admin tenha e o app não. A SA de deploy nunca ganha
+          # acesso à credencial que pode alterar schema.
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5433/taxreformai"
           TENANT=$(echo "$API_KEYS" | jq -r '.[keys[0]]')
           python scripts/verificar_audit_log_gravado.py "$TENANT" "SMOKE-1"
 
