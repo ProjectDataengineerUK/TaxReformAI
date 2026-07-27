@@ -31,6 +31,13 @@ URL_CONSULTA = "http://normas.receita.fazenda.gov.br/sijut2consulta/consulta.act
 # 72 = "Solução de Consulta" na taxonomia de tipos de ato do SIJUT2.
 TIPO_ATO_SOLUCAO_CONSULTA = "72"
 
+# 9 = "Ato Declaratório Executivo" (ADE) — terceiro item do blueprint sob RFB
+# (contexto.md, seção 4.1: "Soluções de Consulta COSIT, Atos Declaratórios
+# Executivos e Tabela de NCM/TIPI"). Confirmado em 2026-07-27 consultando
+# tiposAtosSelecionados=9 com termoBusca=IBS: a faceta "Tipo do ato" devolvida
+# pelo SIJUT2 já mostra "Ato Declaratório Executivo (4)" — não é suposição.
+TIPO_ATO_ADE = "9"
+
 
 def montar_url_busca(
     termo_busca: str,

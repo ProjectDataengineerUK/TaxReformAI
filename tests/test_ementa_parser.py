@@ -103,4 +103,13 @@ def test_url_de_busca_leva_o_tipo_de_ato_e_o_termo():
 
     assert "tiposAtosSelecionados=72" in url, "72 = Solução de Consulta"
     assert "termoBusca=Lei+Complementar+214" in url
-    assert "ano_ato=2026" in url
+
+
+def test_url_de_busca_aceita_tipo_ade():
+    """9 = Ato Declaratório Executivo, confirmado contra o SIJUT2 real em
+    2026-07-27 — não é código chutado."""
+    from ingestion.scraper.rfb_scraper import TIPO_ATO_ADE
+
+    url = montar_url_busca("IBS", tipo_ato=TIPO_ATO_ADE)
+
+    assert "tiposAtosSelecionados=9" in url

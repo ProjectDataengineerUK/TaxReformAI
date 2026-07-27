@@ -6,6 +6,7 @@ projeto (User-Agent recusado, charset não declarado, encoding corrompido)
 todos passaram por revisão de código e só apareceram contra a fonte de verdade.
 """
 
+from datetime import date
 from pathlib import Path
 
 import pytest
@@ -13,6 +14,7 @@ import pytest
 from ingestion.scraper.cgibs_scraper import (
     CGIBSScraper,
     ResolucaoCGIBS,
+    extrair_data_vigencia,
     listar_resolucoes,
 )
 from ingestion.storage.raw_storage import FakeInMemoryStorage
@@ -89,3 +91,55 @@ def test_documento_id_e_estavel_por_numero():
     resolucao = ResolucaoCGIBS(numero=6, titulo="qualquer", url="https://x/y.pdf")
 
     assert resolucao.documento_id == "CGIBS_RES_6_2026"
+
+
+def test_extrai_data_vigencia_das_13_resolucoes_reais(html):
+    """Nenhuma das 13 datas é hardcodada por resolução — hardcodar 13 datas à
+    mão convidaria a um erro de transcrição. Todas resolvidas a partir do
+    próprio título (ou, para a nº 7, do nome do arquivo)."""
+    esperado = {
+        1: date(2026, 2, 23),
+        2: date(2026, 3, 10),
+        3: date(2026, 3, 10),
+        4: date(2026, 4, 8),
+        5: date(2026, 4, 30),
+        6: date(2026, 4, 30),
+        7: date(2026, 5, 18),
+        8: date(2026, 5, 26),
+        9: date(2026, 6, 10),
+        10: date(2026, 6, 29),
+        11: date(2026, 6, 30),
+        12: date(2026, 7, 17),
+        13: date(2026, 7, 22),
+    }
+
+    for resolucao in listar_resolucoes(html):
+        assert extrair_data_vigencia(resolucao) == esperado[resolucao.numero], resolucao.numero
+
+
+def test_mes_abreviado_sem_a_palavra_de_e_reconhecido():
+    """A nº 6 real está redigida como "Res CGIBS N 6, 30 abr 2026" — mês
+    abreviado, sem "de" nem antes nem depois. Sem tratar essa variação, a
+    resolução mais importante do corpus (a que regulamenta o IBS) ficaria sem
+    data de vigência."""
+    resolucao = ResolucaoCGIBS(numero=6, titulo="Res CGIBS N 6, 30 abr 2026", url="https://x/y.pdf")
+
+    assert extrair_data_vigencia(resolucao) == date(2026, 4, 30)
+
+
+def test_titulo_sem_data_recorre_a_data_no_nome_do_arquivo():
+    """A nº 7 não tem nenhuma data no título ("Resolução CGIBS 7") — só no
+    nome do arquivo PDF."""
+    resolucao = ResolucaoCGIBS(
+        numero=7,
+        titulo="Resolução CGIBS 7",
+        url="https://www.cgibs.gov.br/upload/arquivos/202606/x-2026-05-18-min.pdf",
+    )
+
+    assert extrair_data_vigencia(resolucao) == date(2026, 5, 18)
+
+
+def test_sem_data_em_lugar_nenhum_devolve_none_em_vez_de_inventar():
+    resolucao = ResolucaoCGIBS(numero=99, titulo="Resolução CGIBS nº 99", url="https://x/sem-data.pdf")
+
+    assert extrair_data_vigencia(resolucao) is None

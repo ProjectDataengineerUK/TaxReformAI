@@ -94,3 +94,68 @@ def listar_resolucoes(html: str, base_url: str = URL_LISTAGEM) -> list[Resolucao
         )
 
     return sorted(resolucoes.values(), key=lambda r: r.numero)
+
+
+_MESES_PT = {
+    "janeiro": 1,
+    "jan": 1,
+    "fevereiro": 2,
+    "fev": 2,
+    "março": 3,
+    "marco": 3,
+    "mar": 3,
+    "abril": 4,
+    "abr": 4,
+    "maio": 5,
+    "mai": 5,
+    "junho": 6,
+    "jun": 6,
+    "julho": 7,
+    "jul": 7,
+    "agosto": 8,
+    "ago": 8,
+    "setembro": 9,
+    "set": 9,
+    "outubro": 10,
+    "out": 10,
+    "novembro": 11,
+    "nov": 11,
+    "dezembro": 12,
+    "dez": 12,
+}
+
+
+def extrair_data_vigencia(resolucao: "ResolucaoCGIBS"):
+    """Data de publicação, para `data_vigencia_inicio` — nunca hardcodada por
+    resolução (13 datas digitadas à mão convidam a um erro de transcrição).
+
+    Duas estratégias, na ordem em que mais resoluções da listagem real
+    respondem: (1) "DD de MÊS de AAAA" no título, que cobre 12 das 13; (2) uma
+    data ISO embutida no nome do arquivo da URL, único caso restante — a
+    nº 7 ("Resolução CGIBS 7", sem nenhuma data no título) tem
+    "...2026-05-18-min-resolucao..." no nome do PDF. Sem nenhuma das duas,
+    devolve `None` — a chamada decide se isso é falha ou se há um valor
+    default explícito para aquele caso.
+    """
+    import re
+    from datetime import date
+
+    # "de" é opcional nas duas posições: a listagem tem tanto "30 DE ABRIL DE
+    # 2026" quanto "30 abr 2026" (nº 6) — a mesma inconsistência de formato já
+    # documentada para o número da resolução se repete na data.
+    nomes_meses = "|".join(sorted(_MESES_PT, key=len, reverse=True))
+    match = re.search(
+        rf"(\d{{1,2}})\s*(?:º|°)?\s*(?:de\s+)?({nomes_meses})\s+(?:de\s+)?(\d{{4}})",
+        resolucao.titulo,
+        re.IGNORECASE,
+    )
+    if match:
+        dia, mes_nome, ano = match.groups()
+        return date(int(ano), _MESES_PT[mes_nome.lower()], int(dia))
+
+    match = re.search(r"(\d{4})-(\d{2})-(\d{2})", resolucao.url)
+    if match:
+        ano, mes, dia = match.groups()
+        return date(int(ano), int(mes), int(dia))
+
+    return None

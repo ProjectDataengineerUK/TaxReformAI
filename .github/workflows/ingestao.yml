@@ -18,7 +18,9 @@ on:
           - planalto
           - tcu
           - cgibs
+          - cgibs_demais
           - rfb
+          - rfb_ade
           - todas
           - nenhuma
       recriar_colecao:
@@ -144,6 +146,21 @@ jobs:
             --esfera "SUBNACIONAL_IBS" \
             --data-vigencia-inicio "2026-04-30"
 
+      # As outras 12 resoluções do CGIBS (regimentos, orçamento etc.) —
+      # descobertas pela mesma listagem desde que a nº 6 foi ingerida, nunca
+      # indexadas. Baixo valor para o motor de cálculo, mas completa a
+      # cobertura do CGIBS que o blueprint pede. Fora de `fonte == 'todas'`
+      # de propósito: são 12 documentos extras, e "todas" já ficou caro o
+      # bastante com os 2 grandes (LCP 214 + Resolução 6).
+      - name: Executar pipeline de ingestão (CGIBS — demais 12 resoluções)
+        if: ${{ inputs.fonte == 'cgibs_demais' }}
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: python scripts/ingerir_demais_cgibs.py
+
       # Quarta fonte: Soluções de Consulta da RFB (SIJUT2), ementas apenas.
       # O texto integral mora numa SPA cuja API responde 403 e é construída em
       # torno de autenticação com certificado digital; a ementa é pública, é o
@@ -167,6 +184,31 @@ jobs:
             --url "http://normas.receita.fazenda.gov.br/sijut2consulta/consulta.action" \
             --documento-id "RFB_SC_LCP214" \
             --titulo "Soluções de Consulta RFB — Lei Complementar 214/2025" \
+            --esfera "FEDERAL_CBS" \
+            --data-vigencia-inicio "2025-01-16"
+
+      # Terceiro item do blueprint sob RFB (contexto.md, seção 4.1: "Soluções
+      # de Consulta COSIT, Atos Declaratórios Executivos e Tabela de
+      # NCM/TIPI") — a TIPI já foi resolvida à parte (Postgres, não Qdrant).
+      # Reaproveita 100% do parser/scraper da RFB: tipo_ato=9 (ADE), a única
+      # diferença do passo anterior. Confirmado contra o SIJUT2 real em
+      # 2026-07-27: a faceta "Tipo do ato" devolvida já mostra "Ato
+      # Declaratório Executivo". Termo estreito, mesma razão do passo anterior.
+      - name: Executar pipeline de ingestão (RFB — Atos Declaratórios Executivos)
+        if: ${{ inputs.fonte == 'rfb_ade' }}
+        env:
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          GCS_BUCKET_NAME: ${{ secrets.GCS_BUCKET_NAME }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: |
+          python -m ingestion.pipeline run \
+            --fonte rfb \
+            --termo-busca "IBS" \
+            --tipo-ato "9" \
+            --url "http://normas.receita.fazenda.gov.br/sijut2consulta/consulta.action" \
+            --documento-id "RFB_ADE_IBS" \
+            --titulo "Atos Declaratórios Executivos RFB — IBS" \
             --esfera "FEDERAL_CBS" \
             --data-vigencia-inicio "2025-01-16"
 

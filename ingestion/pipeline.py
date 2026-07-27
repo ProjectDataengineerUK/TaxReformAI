@@ -186,13 +186,20 @@ def _build_cli():
             "Estreite-o — a busca casa palavras soltas e resultados grandes "
             "vêm truncados (o parser falha alto nesse caso).",
         ),
+        tipo_ato: str = typer.Option(
+            None,
+            help="Só para --fonte rfb: código do tipo de ato no SIJUT2 "
+            '(72 = Solução de Consulta, o default; 9 = Ato Declaratório '
+            "Executivo). Sem isto, usa o default de montar_url_busca().",
+        ),
     ) -> None:
         settings = Settings.from_env()
 
         if fonte == "rfb" and termo_busca:
             from ingestion.scraper.rfb_scraper import montar_url_busca
 
-            url = montar_url_busca(termo_busca)
+            kwargs = {"tipo_ato": tipo_ato} if tipo_ato else {}
+            url = montar_url_busca(termo_busca, **kwargs)
 
         from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
         from ingestion.indexing.qdrant_indexer import QdrantIndexer
