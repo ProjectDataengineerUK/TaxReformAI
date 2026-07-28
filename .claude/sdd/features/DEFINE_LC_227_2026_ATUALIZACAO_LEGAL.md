@@ -13,8 +13,33 @@
 | **Feature** | LC_227_2026_ATUALIZACAO_LEGAL |
 | **Date** | 2026-07-28 |
 | **Author** | define-agent |
-| **Status** | **Needs Clarification — NÃO pronto para `/design`** (ver "Recomendação" no final) |
-| **Clarity Score** | 9/15 (ver detalhamento — clareza alta sobre *o que* a lei diz, baixa sobre *o que fazer* daqui) |
+| **Status** | **Resolvido sem feature — ver "Diagnóstico executado" abaixo** |
+| **Clarity Score** | 9/15 (histórico — a pergunta que impedia o score mais alto foi respondida pela verificação real, não por mais análise) |
+
+## Diagnóstico executado (2026-07-28)
+
+A verificação recomendada na seção "Recomendação" foi rodada contra o Qdrant real via
+`scripts/verificar_lc227_ingerida.py` (novo, `ingestao.yml` com `verificar_lc227=sim`,
+`fonte=nenhuma` — só leitura, nenhuma reingestão). Run
+[`30368697093`](https://github.com/ProjectDataengineerUK/TaxReformAI/actions/runs/30368697093):
+
+```
+Documento 'LCP_214_2025': 3375 chunks indexados
+ACHOU artigo novo: dispositivo='Art. 341-A'
+ACHOU inciso IV: dispositivo='Art. 344, Parágrafo único, Inciso IV'
+VEREDITO: corpus JÁ REFLETE a LC 227/2026. Nenhuma reingestão necessária.
+```
+
+**Os dois marcadores confirmados contra fonte primária nesta investigação (art. 341-A, artigo
+inteiramente novo; e o texto literal do Inciso IV do art. 344, acréscimo da LC 227/2026) já estão
+indexados.** A hipótese levantada na seção anterior — de que a ingestão de 2026-07-25 já capturava
+o texto pós-LC-227, com base na URL de texto compilado do Planalto e na contagem de 580 artigos —
+está confirmada. Nenhuma reingestão é necessária por causa desta lei.
+
+**Não vira uma feature no roadmap**: não há regressão para corrigir, nenhum dispositivo já
+codificado em `motor_calculo/` ficou desatualizado (achado já registrado nesta sessão), e a
+ingestão já reflete a lei vigente. Este documento fica arquivado como registro da investigação,
+não avança para `/design`.
 
 ---
 

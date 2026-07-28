@@ -15,7 +15,7 @@
 | **Feature** | REGRAS_TRIBUTARIAS_CACHE |
 | **Date** | 2026-07-28 |
 | **Author** | define-agent |
-| **Status** | Ready for Design |
+| **Status** | Designed (ver `DESIGN_REGRAS_TRIBUTARIAS_CACHE.md`) |
 | **Clarity Score** | 15/15 |
 
 ---
@@ -172,15 +172,17 @@ itens 19/20 como não-triviais. Ver "Open Questions" sobre o impacto disso no ta
 - [ ] `/v1/tax/simulate` aplica alíquota zero de CBS/IBS a **100%** dos itens de mercadoria cujo
       NCM esteja entre os itens do Anexo I resolvidos por esta feature, em vez da alíquota geral
       da fase
-- [ ] Decisão explícita e documentada sobre os 6 itens de correspondência não-trivial (1, 8, 15,
+- [x] Decisão explícita e documentada sobre os 6 itens de correspondência não-trivial (1, 8, 15,
       19, 20, 23): resolvidos nesta feature (com a técnica usada) ou marcados como "não resolvido"
-      sem promessa de zero silencioso
+      sem promessa de zero silencioso — **os 6 são resolvidos**, ver Decisão 1 do DESIGN
+      (correspondência é sempre prefixo de dígitos; "exato" é o prefixo de 8)
 - [x] Achado do Anexo XIV possivelmente revogado — **resolvido**: confirmado como revogado pela
       LC 227/2026 contra fonte primária (Senado Federal); Anexo I não afetado
 - [ ] `motor_calculo/` não ganha dependência de infraestrutura — mesmo padrão da feature 1
       (lookup em `api/`/`db/repositorio.py`)
-- [ ] `regras_tributarias_cache`/`buscar_regra_cache()` original: decisão explícita no `/design`
-      sobre se são substituídas por schema novo, adaptadas, ou removidas
+- [x] `regras_tributarias_cache`/`buscar_regra_cache()` original: decisão explícita no `/design`
+      sobre se são substituídas por schema novo, adaptadas, ou removidas — **removidas**
+      (Decisão 12 do DESIGN, migração 006 com guarda de tabela vazia)
 - [ ] Zero regressão: itens de mercadoria com NCM fora do Anexo I continuam recebendo a alíquota
       geral da fase, idêntico ao comportamento hoje
 
@@ -299,7 +301,7 @@ futura ao Anexo I (nova lei complementar) exigiria nova migração, fora deste e
 |----|------------|------------------|------------|
 | A-001 | O texto do Anexo I obtido via `legis.senado.leg.br` (mirror oficial do DOU, Publicação Original de 16/01/2025) é o texto vigente, sem alterações posteriores | Os 26 itens/códigos usados no `/design`/`/build` estariam errados, exigindo correção pós-build | [x] Validado nesta sessão — checada a existência de republicação/errata (só há uma, do Anexo XXIII, não do Anexo I) e a lista de alterações da LC 227/2026 (que não toca o art. 125 nem o Anexo I) |
 | A-002 | O achado do brainstorm sobre o Anexo XIV "possivelmente revogado" está resolvido: o Anexo XIV foi de fato revogado, pela LC 227/2026 | N/A — já não é mais uma suposição, é fato confirmado por fonte primária | [x] Validado nesta sessão |
-| A-003 | A estratégia de correspondência por NCM para os 6 itens não-triviais (1, 8, 15, 19, 20, 23) é uma decisão explícita do `/design`, não desta sessão — pode ser "resolver todos", "resolver um subconjunto documentado" ou "marcar todos como não resolvidos nesta iteração" | Se subestimado, o esforço de `/build` desta feature pode superar o padrão das demais 10 features já roteirizadas na sequência (a maioria delas é "conectar dado já existente a um consumidor", não "desenhar matching heterogêneo") — **risco sinalizado explicitamente**, não decidido aqui | [ ] Fica para o `/design` decidir e para o usuário avaliar se o tamanho ainda cabe como feature de posição 2/11 |
+| A-003 | A estratégia de correspondência por NCM para os 6 itens não-triviais (1, 8, 15, 19, 20, 23) é uma decisão explícita do `/design`, não desta sessão — pode ser "resolver todos", "resolver um subconjunto documentado" ou "marcar todos como não resolvidos nesta iteração" | Se subestimado, o esforço de `/build` desta feature pode superar o padrão das demais 10 features já roteirizadas na sequência (a maioria delas é "conectar dado já existente a um consumidor", não "desenhar matching heterogêneo") — **risco sinalizado explicitamente**, não decidido aqui | [x] Decidido no `/design`: **resolver todos os 6**. A Decisão 1 mostra que prefixo e igualdade exata são o mesmo mecanismo (prefixo de dígitos de comprimento 4 a 8), então cobrir 20 ou 26 itens é o mesmo código — o esforço extra da feature vem do schema novo e do override por item, não dos 6 |
 | A-004 | A LC 227/2026 (13/01/2026) altera extensivamente a LCP 214/2025 (dezenas de artigos entre 330-544, Anexos 7/14/20/21) e não está refletida na coleção Qdrant de produção nem no `CLAUDE.md` atual do projeto | Achado de projeto relevante além desta feature — o corpus legal ingerido (580 artigos da LCP 214/2025) pode estar desatualizado frente à LC 227/2026 para partes não relacionadas ao Anexo I; fora do escopo desta sessão resolver, mas merece atenção | [x] Descoberto e documentado nesta sessão; impacto completo não avaliado (fora de escopo) |
 | A-005 | A abordagem técnica é a Approach A do brainstorm (schema novo dedicado ao Anexo I, sem reaproveitar `regras_tributarias_cache` como está) — já confirmada explicitamente pelo usuário no brainstorm | N/A — nada nesta sessão de `/define` contradiz essa escolha | [x] Confirmado no brainstorm |
 
@@ -361,9 +363,12 @@ Nenhum item acima bloqueia o avanço para `/design` — este documento está pro
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-07-28 | define-agent | Versão inicial, extraída de `BRAINSTORM_REGRAS_TRIBUTARIAS_CACHE.md`; verificação de fonte primária realizada nesta sessão (art. 125 e Anexo I via `legis.senado.leg.br`); achado do Anexo XIV resolvido (revogado pela LC 227/2026, confirmado); achado novo da LC 227/2026 registrado como fora de escopo mas relevante ao projeto; complexidade de correspondência por NCM corrigida de "2 exceções" para "6 de 26 itens" |
+| 1.1 | 2026-07-28 | design-agent | Status → Designed. Os 6 itens não-triviais são **resolvidos** (Decisão 1: toda correspondência é prefixo de dígitos); `regras_tributarias_cache`/`buscar_regra_cache()` **removidos** (Decisão 12). O `/design` rebuscou a mesma fonte primária e transcreveu o Anexo I literalmente, com três achados que o DEFINE não tinha: a redução vale na fase de teste de 2026 (art. 348, III, "a"), os itens 19/20 têm 19 códigos de exceção e um prefixo de 7 dígitos (`0210.99.1`), e há uma **segunda** sobreposição entre itens — 4 e 26 citam o mesmo `2106.90.90`, além da 15/25 já registrada |
 
 ---
 
 ## Next Step
 
-**Ready for:** `/design .claude/sdd/features/DEFINE_REGRAS_TRIBUTARIAS_CACHE.md`
+**Design concluído** — ver [DESIGN_REGRAS_TRIBUTARIAS_CACHE.md](./DESIGN_REGRAS_TRIBUTARIAS_CACHE.md).
+
+**Ready for:** `/build .claude/sdd/features/DESIGN_REGRAS_TRIBUTARIAS_CACHE.md`
