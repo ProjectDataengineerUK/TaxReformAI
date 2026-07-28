@@ -12,7 +12,7 @@
 | **Date** | 2026-07-27 |
 | **Author** | design-agent |
 | **DEFINE** | [DEFINE_IPI_TIPI_MOTOR_CALCULO.md](./DEFINE_IPI_TIPI_MOTOR_CALCULO.md) |
-| **Status** | Built (ver `BUILD_REPORT_IPI_TIPI_MOTOR_CALCULO.md`) |
+| **Status** | ✅ Shipped (ver `SHIPPED_2026-07-28.md`) |
 | **Posição na sequência** | 1 de 11 (`ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md`) |
 
 ---

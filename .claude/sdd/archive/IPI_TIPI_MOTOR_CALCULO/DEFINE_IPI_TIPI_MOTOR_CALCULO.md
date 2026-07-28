@@ -15,7 +15,7 @@
 | **Feature** | IPI_TIPI_MOTOR_CALCULO |
 | **Date** | 2026-07-27 |
 | **Author** | define-agent |
-| **Status** | Built (ver `BUILD_REPORT_IPI_TIPI_MOTOR_CALCULO.md`) |
+| **Status** | ✅ Shipped (ver `SHIPPED_2026-07-28.md`) |
 | **Clarity Score** | 15/15 |
 
 ---

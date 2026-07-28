@@ -15,7 +15,7 @@
 | **Feature** | IPI_TIPI_MOTOR_CALCULO |
 | **Date** | 2026-07-27 |
 | **Author** | brainstorm-agent |
-| **Status** | Ready for Define |
+| **Status** | ✅ Shipped (ver `SHIPPED_2026-07-28.md`) |
 | **Posição na sequência** | 1 de 11 (ver ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md) |
 
 ---

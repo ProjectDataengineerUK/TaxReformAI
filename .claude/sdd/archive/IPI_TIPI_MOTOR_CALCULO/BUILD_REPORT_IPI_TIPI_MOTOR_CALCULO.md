@@ -200,7 +200,7 @@ só o item com 200, falha do Postgres degradando sem 5xx, enum de 5 estados, `no
 
 ## Final Status
 
-### Overall: ✅ BUILD COMPLETO — ⏳ pendente de verificação contra infraestrutura real
+### Overall: ✅ COMPLETO — verificado contra infraestrutura real de ponta a ponta
 
 - [x] 12/12 arquivos do manifesto
 - [x] `ruff check .` limpo
@@ -208,17 +208,21 @@ só o item com 200, falha do Postgres degradando sem 5xx, enum de 5 estados, `no
 - [x] AT-001..AT-005 cobertos, mais os 2 cenários extras das Decisões 1 e 2
 - [x] `test_escopo_e_compensacao.py` e `test_api_simulate.py` passam **sem edição**
 - [x] `RegimeIndisponivelError` removido (dead code confirmado por `grep`)
-- [ ] `migrar_banco.yml` com `verificar_ipi=sim` — prova o `GRANT` ao papel de runtime
-- [ ] `deploy.yml` — smoke test exigindo `total_ipi` não-nulo contra a API pública
+- [x] `migrar_banco.yml` com `verificar_ipi=sim` — prova o `GRANT` ao papel de runtime
+- [x] `deploy.yml` — smoke test exigindo `total_ipi` não-nulo contra a API pública
 
-## Recomendação
+## Recomendação (cumprida)
 
-**Rodar as duas verificações pendentes antes de `/ship`.** Não é formalidade: pela Decisão 2, um
-`GRANT` faltando ou uma migração não aplicada **não** produz erro em runtime — produz
-`CONSULTA_INDISPONIVEL` silencioso, 200, verde, e sem IPI. Os dois passos de workflow são os
-únicos lugares do sistema em que esse modo de falha vira ruído. A lição 3 do SHIPPED de
-`SCHEMA_POSTGRESQL` (nenhum papel do Cloud SQL é superusuário, ao contrário de Postgres
-autogerido) é exatamente sobre config de papel que parecia certa e não era.
+As duas verificações pendentes no momento do build foram rodadas antes do `/ship`, na ordem
+sugerida abaixo. Não era formalidade: pela Decisão 2, um `GRANT` faltando ou uma migração não
+aplicada **não** produz erro em runtime — produz `CONSULTA_INDISPONIVEL` silencioso, 200, verde,
+e sem IPI. Os dois passos de workflow eram os únicos lugares do sistema em que esse modo de falha
+viraria ruído.
 
-Ordem sugerida: `migrar_banco.yml` (`MIGRAR`, `verificar_ipi=sim`, `ingerir_tipi=nao` — já
-ingerida) e depois `deploy.yml` (`DEPLOY`, `target=api`).
+1. `migrar_banco.yml` (`MIGRAR`, `verificar_ipi=sim`, `ingerir_tipi=nao` — já ingerida) — run
+   `30299629790`, 2026-07-27. Provou que o papel de runtime `taxreformai_app` lê
+   `aliquotas_ipi_tipi` (9231 linhas) e distingue alíquota 0% real de "NT".
+2. `deploy.yml` (`DEPLOY`, `target=api`) — run `30300917434`, 2026-07-27. Smoke test em produção
+   confirmou `OK ipi (total_ipi=3.90)` contra a API pública, mais audit log gravado de verdade.
+
+Ver `SHIPPED_2026-07-28.md` para os detalhes completos e as lições aprendidas.
