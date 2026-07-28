@@ -15,7 +15,7 @@
 | **Feature** | REGRAS_TRIBUTARIAS_CACHE |
 | **Date** | 2026-07-28 |
 | **Author** | define-agent |
-| **Status** | 🔄 Built (ver `BUILD_REPORT_REGRAS_TRIBUTARIAS_CACHE.md`) — pendente das 2 verificações reais da Decisão 13 antes do `/ship` |
+| **Status** | ✅ Shipped (ver `SHIPPED_2026-07-28.md`) |
 | **Clarity Score** | 15/15 |
 
 ---

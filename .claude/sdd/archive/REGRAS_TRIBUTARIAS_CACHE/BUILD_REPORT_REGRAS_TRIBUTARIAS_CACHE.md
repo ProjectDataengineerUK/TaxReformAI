@@ -286,8 +286,11 @@ implementadas como especificadas.
       comprimentos {4,5,6,7,8} · `21069090` como único prefixo compartilhado · nenhuma exceção órfã
 - [x] `regras_tributarias_cache`/`buscar_regra_cache` removidos (confirmado por `grep`: só restam
       as migrações históricas, que não se editam)
-- [ ] **`migrar_banco.yml` com `verificar_cesta_basica=sim`**
-- [ ] **`deploy.yml` — 2ª chamada do smoke test**
+- [x] **`migrar_banco.yml` com `verificar_cesta_basica=sim`** — run `30383959322`, 2026-07-28
+- [x] **`deploy.yml` — 2ª chamada do smoke test** — run `30384142935`, 2026-07-28
+
+Ambas as verificações rodaram contra infraestrutura real. Ver `SHIPPED_2026-07-28.md` para o
+detalhe de cada uma. Feature arquivada.
 
 ## Recomendação antes do `/ship`
 

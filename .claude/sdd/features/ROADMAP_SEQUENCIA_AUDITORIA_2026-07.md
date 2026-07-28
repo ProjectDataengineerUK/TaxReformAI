@@ -29,7 +29,7 @@ usuário (Jonatas) decidiu em 2026-07-27:
 | Ordem | Achado original | Feature | Descrição resumida | Status |
 |-------|------------------|---------|---------------------|--------|
 | 1 | 1 | `IPI_TIPI_MOTOR_CALCULO` | Conectar `aliquotas_ipi_tipi` (9231 NCM já ingeridos) ao `motor_calculo`/`api/routers/simulate.py` — IPI deixa de ser "indisponível" quando o dado já existe | ✅ Shipado 2026-07-28 (`.claude/sdd/archive/IPI_TIPI_MOTOR_CALCULO/`) |
-| 2 | 2 | `REGRAS_TRIBUTARIAS_CACHE` | Decidir destino de `regras_tributarias_cache`/`buscar_regra_cache()` — plugar num consumidor real ou remover como código morto | ⚪ Não iniciado |
+| 2 | 2 | `REGRAS_TRIBUTARIAS_CACHE` | Decidir destino de `regras_tributarias_cache`/`buscar_regra_cache()` — plugar num consumidor real ou remover como código morto | ✅ Shipado 2026-07-28 (`.claude/sdd/archive/REGRAS_TRIBUTARIAS_CACHE/`) — removida; substituída pela Cesta Básica Nacional (Anexo I) |
 | 3 | 3 | `API_EMPRESA_SKUS` | Endpoints para tenant cadastrar/listar/upload de SKUs (`empresa_skus` — schema e RLS já existem, zero rota) | ⚪ Não iniciado |
 | 4 | 5 | `LLM_REAL_VERTEX_AI` | Conectar Claude via Vertex AI de verdade (`anthropic`/`google-cloud-aiplatform` ausentes hoje) — pré-requisito técnico do item 5 | ⚪ Não iniciado |
 | 5 | 4 | `ORQUESTRACAO_NOS_REAIS` | Tornar `classificador`/`pesquisador_legal`/`extrator_regras`/`sintetizador` reais (hoje fake), incluindo busca real no Qdrant — depende do item 4 (LLM conectado) | ⚪ Não iniciado |
