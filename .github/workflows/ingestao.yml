@@ -39,6 +39,14 @@ on:
         description: "Só para fonte=cgibs_demais: números a NÃO reingerir, separados por vírgula, substituindo o default (só a nº 6). Ex., depois de 9 já terem ingerido com sucesso: '1,2,3,4,5,6,7,8,9,13' para tentar só as que faltam"
         required: false
         default: ""
+      verificar_lc227:
+        description: "Diagnóstico único: o corpus já indexado (LCP_214_2025) reflete a LC 227/2026? Só leitura, não reingere nada"
+        required: true
+        default: "nao"
+        type: choice
+        options:
+          - "nao"
+          - "sim"
 
 jobs:
   ingestao-e-verificacao:
@@ -222,6 +230,17 @@ jobs:
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
         run: python scripts/verificar_busca_hibrida.py
+
+      # Diagnóstico pontual (.claude/sdd/features/DEFINE_LC_227_2026_ATUALIZACAO_LEGAL.md):
+      # só leitura, decide se o corpus já indexado reflete a LC 227/2026 antes de
+      # qualquer decisão de reingestão. Não reprova o job — é informativo, para leitura
+      # humana, não um critério de aceite desta feature.
+      - name: "Diagnóstico: corpus reflete a LC 227/2026?"
+        if: ${{ inputs.verificar_lc227 == 'sim' }}
+        env:
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: python scripts/verificar_lc227_ingerida.py
 
       - name: Limpar credenciais
         if: always()
