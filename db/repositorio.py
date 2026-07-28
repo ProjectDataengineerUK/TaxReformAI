@@ -27,34 +27,6 @@ class ParecerAuditado:
 
 
 @dataclass(frozen=True)
-class RegraTributariaCache:
-    ncm_code: str
-    ano_vigencia: int
-    dispositivo_legal_ref: str
-    aliquota_cbs: Decimal | None = None
-    aliquota_ibs: Decimal | None = None
-    aliquota_is: Decimal | None = None
-    fonte_legal_cbs: str | None = None
-    fonte_legal_ibs: str | None = None
-    fonte_legal_is: str | None = None
-    confirmado_em_lei: bool = False
-    regime_especial: str = "GERAL"
-
-    def tributos_indisponiveis(self) -> list[str]:
-        """Mesma semântica de `RegraFiscal.tributos_indisponiveis()`. NULL aqui
-        significa "a lei não fixou", não "ninguém preencheu"."""
-        return [
-            nome
-            for nome, valor in (
-                ("CBS", self.aliquota_cbs),
-                ("IBS", self.aliquota_ibs),
-                ("IS", self.aliquota_is),
-            )
-            if valor is None
-        ]
-
-
-@dataclass(frozen=True)
 class AliquotaIpi:
     """Uma linha de `aliquotas_ipi_tipi` (migração 004).
 
@@ -70,7 +42,7 @@ class AliquotaIpi:
 
 
 def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
-    """Lookup em lote da TIPI. Sem RLS: como `regras_tributarias_cache`, é dado
+    """Lookup em lote da TIPI. Sem RLS: como `cesta_basica_anexo_i`, é dado
     legal público, igual para todo tenant.
 
     UMA query para N códigos — `= ANY(%s)` com uma lista Python é o idioma
@@ -105,6 +77,64 @@ def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
         )
         for linha in linhas
     }
+
+
+@dataclass(frozen=True)
+class PrefixoCestaBasica:
+    """Uma linha de `cesta_basica_anexo_i_ncm` já com o item resolvido pelo JOIN.
+
+    `excecao=True` significa que este prefixo EXCLUI a mercadoria do item — e
+    exclui só DESTE item, nunca dos demais (Decisão 3). A lei escreve a exclusão
+    dentro do item ("02.07 [...] exceto os produtos dos códigos 0207.43.00 e
+    0207.53.00"), então uma exceção global permitiria que uma exclusão do item
+    20 anulasse uma inclusão do item 19 sem que ninguém tivesse escrito isso.
+    """
+
+    item: int
+    prefixo: str
+    excecao: bool
+    texto_ncm: str
+    alinea: str | None
+    descricao: str
+    dispositivo_legal_ref: str
+
+
+def buscar_cesta_basica_por_prefixo(
+    conexao, prefixos: list[str]
+) -> list[PrefixoCestaBasica]:
+    """Lookup em lote do Anexo I. Sem RLS: dado legal público, igual para todo tenant.
+
+    UMA query para os prefixos de todos os itens do payload. Devolve tanto
+    inclusões quanto exceções — uma exceção só é relevante quando ela própria é
+    prefixo do código, então ela cai no mesmo `= ANY` e não precisa de segunda
+    consulta.
+
+    O `= ANY(%s)` com lista Python é o mesmo idioma de `buscar_ipi_por_ncm`, e é
+    o que a Decisão 2 preserva ao expandir o prefixo do lado do Python: a coluna
+    fica do lado curto da igualdade, o índice continua valendo e nenhum trecho
+    de SQL precisa saber o que conta como prefixo.
+
+    Propaga exceção de propósito: quem decide degradar é `api/cesta_basica.py`
+    (mesma divisão da Decisão 6 do DESIGN de IPI_TIPI_MOTOR_CALCULO). Lista
+    vazia de retorno significa "nenhum prefixo casou", nunca "falhou".
+    """
+    if not prefixos:
+        return []
+
+    with conexao.cursor() as cur:
+        cur.execute(
+            """
+            SELECT p.item, p.prefixo, p.excecao, p.texto_ncm, p.alinea,
+                   i.descricao, i.dispositivo_legal_ref
+            FROM cesta_basica_anexo_i_ncm p
+            JOIN cesta_basica_anexo_i i ON i.item = p.item
+            WHERE p.prefixo = ANY(%s)
+            """,
+            (list(prefixos),),
+        )
+        # A ordem dos campos do SELECT é a ordem do dataclass — se um mudar, o
+        # outro muda junto.
+        return [PrefixoCestaBasica(*linha) for linha in cur.fetchall()]
 
 
 @contextmanager
@@ -174,38 +204,3 @@ def registrar_parecer(conexao, parecer: ParecerAuditado) -> UUID:
             ),
         )
         return cur.fetchone()[0]
-
-
-def buscar_regra_cache(
-    conexao, ncm_code: str, ano_vigencia: int, regime_especial: str = "GERAL"
-) -> RegraTributariaCache | None:
-    """Sem RLS: regra tributária é dado legal público, igual para todo tenant."""
-    with conexao.cursor() as cur:
-        cur.execute(
-            """
-            SELECT ncm_code, ano_vigencia, dispositivo_legal_ref,
-                   aliquota_cbs, aliquota_ibs, aliquota_is,
-                   fonte_legal_cbs, fonte_legal_ibs, fonte_legal_is,
-                   confirmado_em_lei, regime_especial
-            FROM regras_tributarias_cache
-            WHERE ncm_code = %s AND ano_vigencia = %s AND regime_especial = %s
-            """,
-            (ncm_code, ano_vigencia, regime_especial),
-        )
-        linha = cur.fetchone()
-
-    if linha is None:
-        return None
-    return RegraTributariaCache(
-        ncm_code=linha[0],
-        ano_vigencia=linha[1],
-        dispositivo_legal_ref=linha[2],
-        aliquota_cbs=linha[3],
-        aliquota_ibs=linha[4],
-        aliquota_is=linha[5],
-        fonte_legal_cbs=linha[6],
-        fonte_legal_ibs=linha[7],
-        fonte_legal_is=linha[8],
-        confirmado_em_lei=linha[9],
-        regime_especial=linha[10],
-    )

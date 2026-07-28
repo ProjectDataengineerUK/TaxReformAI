@@ -33,6 +33,14 @@ on:
         options:
           - "sim"
           - "nao"
+      verificar_cesta_basica:
+        description: "Provar que o papel de RUNTIME lê o Anexo I (Cesta Básica) e que as exceções dos itens 19/20 são respeitadas"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -140,6 +148,18 @@ jobs:
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/verificar_ipi_producao.py
+
+      # Mesmo modo de falha silencioso da verificação acima, e pior: pela
+      # Decisão 8 do DESIGN da Cesta Básica, um GRANT faltando faz a redução do
+      # art. 125 simplesmente não ser aplicada — 200, verde, e com a alíquota
+      # geral, que é EXATAMENTE a resposta de antes da feature. Este passo é o
+      # único lugar em que a diferença entre "funciona" e "não faz nada" aparece.
+      - name: Verificar leitura da Cesta Básica (Anexo I) pelo papel de runtime
+        if: ${{ inputs.verificar_cesta_basica == 'sim' }}
+        run: |
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_cesta_basica_producao.py
 
       - name: Encerrar o proxy
         if: always()

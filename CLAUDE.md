@@ -20,7 +20,9 @@
 | `SCHEMA_POSTGRESQL` (`db/`, `motor_calculo/regime_atual.py`) | ✅ Shipado (`.claude/sdd/archive/SCHEMA_POSTGRESQL/`) | Schema da seção 7 (multi-tenancy via RLS, audit log, cache de regras) **aplicado no Cloud SQL real** e conectado à API deployada — audit log gravando de verdade, provado por consulta separada. Mais o regime tributário vigente (PIS/COFINS, ICMS interestadual) com todas as alíquotas citadas por artigo real do Planalto/LexML, nunca de memória |
 | `IPI_TIPI_MOTOR_CALCULO` (`api/ipi.py`, `db/repositorio.py`, `api/routers/simulate.py`) | ✅ Shipado (`.claude/sdd/archive/IPI_TIPI_MOTOR_CALCULO/`) — duas verificações reais: `migrar_banco.yml` com `verificar_ipi=sim` (run `30299629790`) provou que o papel de runtime `taxreformai_app` lê `aliquotas_ipi_tipi` (9231 linhas), distinguindo alíquota 0% real de "NT"; `deploy.yml` (run `30300917434`) confirmou `total_ipi=3.90` no smoke test contra a API pública | Liga a tabela `aliquotas_ipi_tipi` (9231 NCMs já ingeridos) ao `/v1/tax/simulate`: lookup em lote (1 query por request, `= ANY(%s)`), IPI por item com o `dispositivo_legal_ref` da própria linha como fonte. `ipi_situacao` é um enum de 5 estados — NT nunca vira 0%, NCM ausente nunca vira omissão, banco fora do ar nunca vira 5xx. Primeira das 11 features de `.claude/sdd/features/ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md` a ser shipada |
 
-Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run, o schema PostgreSQL real e conectado, e o IPI consumindo a TIPI já ingerida — 9 features shipadas. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL` e por `IPI_TIPI_MOTOR_CALCULO`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
+| `REGRAS_TRIBUTARIAS_CACHE` (`db/migrations/005`+`006`, `api/cesta_basica.py`, `api/ncm.py`, `motor_calculo/reducoes.py`) | 🔄 Buildado (`.claude/sdd/features/BUILD_REPORT_REGRAS_TRIBUTARIAS_CACHE.md`) — **as 2 verificações reais da Decisão 13 ainda não rodaram**: `migrar_banco.yml` com `verificar_cesta_basica=sim` e o 2º smoke test do `deploy.yml`. Sem elas a feature pode estar verde sem fazer nada (ver abaixo) | Cesta Básica Nacional (LCP 214/2025, art. 125 e Anexo I, 26 itens transcritos do DOU): `/v1/tax/simulate` aplica alíquota **zero** de CBS/IBS por item, citando "art. 125, Anexo I, item N". Toda correspondência por NCM é prefixo de dígitos de 4 a 8 ("exato" é o prefixo de 8), o que resolve os 26 itens com um só mecanismo, inclusive as 19 exceções dos itens 19/20 (foie gras, salmonídeos, atuns). Remove `regras_tributarias_cache`/`buscar_regra_cache()` — código morto desde `SCHEMA_POSTGRESQL` |
+
+Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run, o schema PostgreSQL real e conectado, e o IPI consumindo a TIPI já ingerida — 9 features shipadas e 1 buildada. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL` e por `IPI_TIPI_MOTOR_CALCULO`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
 
 ### Fontes legais ingeridas (verificado em produção, 2026-07-25)
 
@@ -41,7 +43,10 @@ Comitê Gestor do IBS e RFB. Mais o TCU, que não estava mapeado.
 **SPED / IBPT — decisão de 2026-07-25: fora do pipeline de ingestão.** São dados **tabulares**
 (NCM → alíquota aproximada, Lei 12.741/2012), não legislação: consulta é por chave exata, não
 semântica, então embedá-los no Qdrant seria a ferramenta errada. Pertencem ao schema PostgreSQL
-(seção 7, `regras_tributarias_cache`), consultados deterministicamente pelo `motor_calculo`.
+e são consultados deterministicamente — o padrão que `aliquotas_ipi_tipi` (migração 004) e
+`cesta_basica_anexo_i` (migração 005) já concretizaram. (A tabela genérica `regras_tributarias_cache`
+que a seção 7 do blueprint previa para isso **foi removida** pela migração 006: sua forma —
+alíquota absoluta, um NCM por linha, sem exceções — não serve para nenhum regime diferenciado real.)
 Além disso a tabela IBPT exige **cadastro de empresa** e é produto licenciado de um instituto
 privado — não legislação em domínio público como as outras três. É decisão de licenciamento,
 não técnica. A tabela ainda tem vigência de ~2 meses e é reeditada bimestralmente, o que a torna
@@ -93,21 +98,24 @@ TaxReformAI/
 │   ├── regras_fiscais.py       # RegraFiscal (alíquota `Decimal | None` + fonte por tributo) + AliquotaNaoDisponivelError
 │   ├── tabela_aliquotas.py      # TabelaAliquotas (Protocol) + seed com artigos reais (2026 completo, 2027-28 parcial)
 │   ├── engine.py                 # TaxCalculatorEngine — CBS/IBS/IS (reforma)
+│   ├── reducoes.py                 # aplicar_reducao_a_zero — override por ITEM depois de calcular(); CBS/IBS a zero, IS intacto, líquido recomposto. Python puro, zero infra
 │   └── regime_atual.py            # PIS/COFINS + ICMS interestadual + ICMS interno (27 UFs) + ISS piso/teto (regime VIGENTE) — cada alíquota citada por artigo real; IPI NÃO mora aqui (precisa de banco), vive em api/ipi.py
 ├── db/                        # SCHEMA_POSTGRESQL — schema real no Cloud SQL (taxreformai-pg)
-│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app) → 004 (aliquotas_ipi_tipi + GRANT SELECT ao papel app)
+│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app) → 004 (aliquotas_ipi_tipi + GRANT) → 005 (Cesta Básica/Anexo I: 2 tabelas + seed dos 26 itens/95 prefixos + GRANT) → 006 (DROP guardado de regras_tributarias_cache)
 │   ├── migrador.py               # Runner idempotente, sem ORM
-│   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_regra_cache, buscar_ipi_por_ncm (lote, 1 query)
+│   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_ipi_por_ncm e buscar_cesta_basica_por_prefixo (ambos em lote, 1 query)
 ├── api/db.py                # Pool de conexão (Depends, overridável em teste — mesmo padrão de api/config.get_settings)
 ├── api/audit.py              # registrar_com_seguranca — audit log que NUNCA propaga exceção
 ├── api/ipi.py                # IPI_TIPI — normalizar_ncm + resolver_item (5 situações) + consultar_ipi_com_seguranca; gêmeo de LEITURA do audit.py, também nunca propaga
+├── api/ncm.py                # Vocabulário da NCM/SH — digitos_ncm (8 dígitos canônicos) + prefixos_ncm (4→8); UMA noção de "NCM válido" para IPI e Cesta Básica
+├── api/cesta_basica.py       # REGRAS_TRIBUTARIAS_CACHE — resolver_item (6 situações) + consultar_com_seguranca; degradação CONSERVADORA (alíquota geral, nunca null)
 ├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo; copia api/, motor_calculo/, orquestracao/, ingestion/ E db/
 ├── frontend/Dockerfile       # DEPLOY_CLOUD_RUN — multi-stage (deps→builder→runner), Next.js standalone, usuário não-root
 ├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic/psycopg) — o que vai para a imagem; requirements.txt inclui via `-r`
 ├── infra/terraform/         # Bucket GCS + Artifact Registry + SA de deploy + Cloud SQL (taxreformai-pg) — state remoto em gs://taxreformai-dev-tfstate
 ├── .github/workflows/        # ci.yml (pytest + frontend, com Postgres real de serviço) + terraform.yml + deploy.yml (Cloud Run + Cloud SQL) + ingestao.yml + migrar_banco.yml — os 4 últimos só por workflow_dispatch
-├── scripts/                  # verificar_busca_hibrida.py, aplicar_migracoes.py, popular_tenants.py, verificar_rls_producao.py, verificar_audit_log_gravado.py, ingerir_tipi.py, verificar_ipi_producao.py — todos rodam só via workflow, nunca local
-├── tests/                    # 246 testes (pytest) — os de schema/RLS/TIPI pulam sem DATABASE_URL, rodam de verdade no CI
+├── scripts/                  # verificar_busca_hibrida.py, aplicar_migracoes.py, popular_tenants.py, verificar_rls_producao.py, verificar_audit_log_gravado.py, ingerir_tipi.py, verificar_ipi_producao.py, verificar_cesta_basica_producao.py — todos rodam só via workflow, nunca local
+├── tests/                    # 332 testes (pytest) — os de schema/RLS/TIPI/Anexo I pulam sem DATABASE_URL, rodam de verdade no CI
 ├── .env.example              # Template de variáveis — .env local fica só com config não-sensível (ex: FRONTEND_ORIGINS); credenciais reais vivem em GitHub Secrets
 └── .claude/sdd/               # Documentos do workflow SDD (features/, reports/, archive/)
 ```
@@ -126,12 +134,14 @@ TaxReformAI/
 | `.claude/sdd/archive/SCHEMA_POSTGRESQL/SHIPPED_2026-07-27.md` | Lições da feature do schema — a mais cara: nenhum papel no Cloud SQL (nem `postgres`) é superusuário de verdade, diferente de Postgres autogerido; qualquer config de papel testada só contra Postgres genérico merece diagnóstico direto contra o serviço gerenciado antes de assumir paridade |
 | `motor_calculo/regime_atual.py` | PIS/COFINS + ICMS interestadual — ponto de entrada do regime vigente, `TabelaPisCofins().buscar(regime)` e `icms_interestadual(uf_origem, uf_destino, bem_importado=...)` |
 | `db/repositorio.py` | Ponto de entrada do acesso a dados — `sessao_do_tenant()` é o único jeito correto de tocar tabelas com RLS |
+| `db/migrations/005_cesta_basica_anexo_i.sql` | A transcrição literal do Anexo I (26 itens, 95 prefixos) com a URL da fonte primária no cabeçalho — é o documento de auditoria da Cesta Básica, não só um script. Duas CHECKs impedem transcrição inconsistente: `prefixo = regexp_replace(texto_ncm, '[^0-9]', '', 'g')` e `prefixo ~ '^[0-9]{4,8}$'` |
+| `api/cesta_basica.py` | Ponto de entrada da Cesta Básica — `resolver_item(natureza, ncm, consulta)`, função pura com 6 situações; `EXCLUIDA_EXPRESSAMENTE` (o Anexo exclui o código) NÃO é `FORA_DO_ANEXO` |
 
 ## Convenções
 
 - **Linter:** `ruff` (`ruff check .` — configurado e limpo; `pyproject.toml` declara `select` explícito desde 2026-07-25, para não depender do default de cada versão instalada)
 - **Formatter:** não configurado explicitamente (código segue `ruff format` implicitamente)
-- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (141 testes; os de `db/` pulam sem `DATABASE_URL`, rodam de verdade no CI contra um container `postgres:16`)
+- **Testes:** `pytest` — `python3 -m pytest tests/ -v` (332 testes; os de `db/` pulam sem `DATABASE_URL`, rodam de verdade no CI contra um container `postgres:16`)
 
 ## Como rodar
 
@@ -191,6 +201,16 @@ API conectada — ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/`.
   detecta: `scripts/verificar_ipi_producao.py`, via `migrar_banco.yml` (`verificar_ipi=sim`),
   conecta com o papel de RUNTIME e falha ruidosamente. O smoke test do `deploy.yml` fecha o E2E
   exigindo `regime_vigente.total_ipi` não-nulo.
+- **`cesta_basica_anexo_i` / `cesta_basica_anexo_i_ncm`** (migração 005, 26 itens + 95 prefixos)
+  guardam o Anexo I da LCP 214/2025. Mesmo modo de falha silencioso do IPI, e **pior**: pela
+  Decisão 8 do DESIGN, um `GRANT` faltando não gera erro nem campo nulo — gera a **alíquota geral
+  da fase**, que é exatamente a resposta de antes da feature. A feature "funciona" verde sem fazer
+  nada. Só dois testes ativos detectam: `scripts/verificar_cesta_basica_producao.py`
+  (`migrar_banco.yml`, `verificar_cesta_basica=sim`) e a **segunda** chamada do smoke test do
+  `deploy.yml` — deliberadamente separada da do IPI, porque juntar os dois payloads faria
+  `total_ipi` depender de `0405.10.00` estar na TIPI ingerida.
+- **`regras_tributarias_cache` não existe mais** (migração 006, `DROP` guardado por uma checagem
+  de "está vazia?"). Era código morto de schema desde a 001.
 
 ## Regime tributário vigente (`motor_calculo/regime_atual.py`)
 
@@ -255,4 +275,4 @@ reedição bimestral, não formato).
 
 ---
 
-_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn`. Revisão pós-build de `DEPLOY_CLOUD_RUN` (2026-07-25) achou 4 defeitos reais — point id do Qdrant que não era UUID, CLI `typer` achatada, `COPY /app/public` sobre diretório inexistente e a discordância de identidade de runtime entre Terraform e `deploy.yml` — e o primeiro deploy real ficou verde no mesmo dia, junto com o ship do CGIBS/RFB como 3ª e 4ª fontes legais e a verificação E2E da busca híbrida (6866 pontos indexados, Bloco A 5/5 filtrado por documento). Atualizado em 2026-07-27 após o build/ship de `SCHEMA_POSTGRESQL`: schema da seção 7 aplicado no Cloud SQL real, RLS provado (não só inferido) contra a instância real, regime tributário vigente (PIS/COFINS/ICMS interestadual) com 7 alíquotas citadas por artigo, e a API deployada gravando audit log de verdade — achado mais caro da feature foi que nenhum papel no Cloud SQL, nem `postgres`, é superusuário de verdade, ao contrário de Postgres autogerido. Ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/SHIPPED_2026-07-27.md`. Atualizado em 2026-07-28 após o build/ship de `IPI_TIPI_MOTOR_CALCULO`, primeira das 11 features de `.claude/sdd/features/ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md` (auditoria pós-`SCHEMA_POSTGRESQL` que levantou 12 achados): a TIPI (9231 NCM), ingerida desde a feature anterior mas sem consumidor, passou a alimentar `/v1/tax/simulate` via `api/ipi.py`, com um enum de 5 estados que nunca confunde NT com alíquota zero nem NCM ausente com omissão silenciosa — verificado em duas camadas de infraestrutura real (`migrar_banco.yml` run `30299629790`, `deploy.yml` run `30300917434`). Ver `.claude/sdd/archive/IPI_TIPI_MOTOR_CALCULO/SHIPPED_2026-07-28.md`._
+_Gerado por `/start` em 2026-07-22. Atualizado em 2026-07-23 após o build/ship de `MOTOR_DETERMINISTICO_CALCULO`, `ORQUESTRACAO_MULTIAGENTE`, `API_HTTP_SIMULACAO` e `FRONTEND_SIMULADOR`. Atualizado em 2026-07-24 após auditoria completa (CLAUDE.md/contexto.md vs. estado real do repo), CI/CD real (`.github/workflows/`), aplicação real do Terraform (bucket GCS), migração de credenciais para GitHub Secrets, e build de `INGESTAO_TCU_E_ETL_AIRFLOW`. Segunda auditoria (mesmo dia) encontrou e corrigiu o CI quebrado desde a criação — `requirements.txt` nunca listou `fastapi`/`uvicorn`. Revisão pós-build de `DEPLOY_CLOUD_RUN` (2026-07-25) achou 4 defeitos reais — point id do Qdrant que não era UUID, CLI `typer` achatada, `COPY /app/public` sobre diretório inexistente e a discordância de identidade de runtime entre Terraform e `deploy.yml` — e o primeiro deploy real ficou verde no mesmo dia, junto com o ship do CGIBS/RFB como 3ª e 4ª fontes legais e a verificação E2E da busca híbrida (6866 pontos indexados, Bloco A 5/5 filtrado por documento). Atualizado em 2026-07-27 após o build/ship de `SCHEMA_POSTGRESQL`: schema da seção 7 aplicado no Cloud SQL real, RLS provado (não só inferido) contra a instância real, regime tributário vigente (PIS/COFINS/ICMS interestadual) com 7 alíquotas citadas por artigo, e a API deployada gravando audit log de verdade — achado mais caro da feature foi que nenhum papel no Cloud SQL, nem `postgres`, é superusuário de verdade, ao contrário de Postgres autogerido. Ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/SHIPPED_2026-07-27.md`. Atualizado em 2026-07-28 após o build/ship de `IPI_TIPI_MOTOR_CALCULO`, primeira das 11 features de `.claude/sdd/features/ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md` (auditoria pós-`SCHEMA_POSTGRESQL` que levantou 12 achados): a TIPI (9231 NCM), ingerida desde a feature anterior mas sem consumidor, passou a alimentar `/v1/tax/simulate` via `api/ipi.py`, com um enum de 5 estados que nunca confunde NT com alíquota zero nem NCM ausente com omissão silenciosa — verificado em duas camadas de infraestrutura real (`migrar_banco.yml` run `30299629790`, `deploy.yml` run `30300917434`). Ver `.claude/sdd/archive/IPI_TIPI_MOTOR_CALCULO/SHIPPED_2026-07-28.md`. Atualizado em 2026-07-28 após o **build** de `REGRAS_TRIBUTARIAS_CACHE` (2ª das 11): a Cesta Básica Nacional (LCP 214/2025, art. 125 e Anexo I, 26 itens transcritos da publicação oficial do DOU espelhada pelo Senado) passou a zerar CBS/IBS por item em `/v1/tax/simulate`, com o item do Anexo citado em cada um; toda correspondência por NCM virou prefixo de dígitos de 4 a 8, o que resolveu num só mecanismo os 20 itens "exatos", os 6 não-triviais e as 19 exceções dos itens 19/20; `regras_tributarias_cache`/`buscar_regra_cache()` foram removidos como código morto. **Ainda não verificado contra infraestrutura real** — as duas verificações da Decisão 13 estão descritas em `.claude/sdd/features/BUILD_REPORT_REGRAS_TRIBUTARIAS_CACHE.md` e precisam rodar antes do `/ship`, porque o único modo de falha desta feature é indistinguível do sucesso._

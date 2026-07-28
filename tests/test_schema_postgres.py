@@ -12,7 +12,6 @@ contra o banco errado dá confiança falsa, que é pior que nenhuma cobertura.
 from __future__ import annotations
 
 import os
-from decimal import Decimal
 from uuid import UUID
 
 import pytest
@@ -76,10 +75,11 @@ def conexao():
     con.close()
     admin = psycopg.connect(DATABASE_URL)
     with admin.cursor() as cur:
-        cur.execute(
-            "TRUNCATE pareceres_audit_log, empresa_skus, "
-            "regras_tributarias_cache, tenants CASCADE"
-        )
+        # `regras_tributarias_cache` saiu daqui junto com a migração 006, que a
+        # derrubou como código morto de schema (Decisão 12 do DESIGN da Cesta
+        # Básica): nunca teve consumidor, nunca teve linha, e sua forma está
+        # errada para os regimes diferenciados reais da LCP 214/2025.
+        cur.execute("TRUNCATE pareceres_audit_log, empresa_skus, tenants CASCADE")
     admin.commit()
     admin.close()
 
@@ -168,33 +168,14 @@ def test_nao_da_para_gravar_no_tenant_de_outro(conexao, dois_tenants):
 
 
 # --- Asserção 2: alíquota NULL é aceita ---
-
-
-def test_aliquota_nula_e_aceita_e_volta_como_none(conexao):
-    """Contra o blueprint, que declara NOT NULL. A CBS de 2027-2028 não tem
-    número fixado em lei (art. 347) — se NOT NULL sobrevivesse, gravar a fase
-    2027 exigiria inventar um percentual."""
-    from db.repositorio import buscar_regra_cache
-
-    with conexao.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO regras_tributarias_cache
-                (ncm_code, ano_vigencia, aliquota_ibs, aliquota_cbs, aliquota_is,
-                 fonte_legal_ibs, fonte_legal_cbs, dispositivo_legal_ref, confirmado_em_lei)
-            VALUES ('22030000', 2027, 0.001, NULL, NULL,
-                    'LCP 214/2025, art. 344', 'LCP 214/2025, art. 347', 'LCP 214/2025', FALSE)
-            """
-        )
-    conexao.commit()
-
-    regra = buscar_regra_cache(conexao, "22030000", 2027)
-
-    assert regra is not None
-    assert regra.aliquota_ibs == Decimal("0.00100")
-    assert regra.aliquota_cbs is None
-    assert regra.tributos_indisponiveis() == ["CBS", "IS"]
-    assert "art. 347" in regra.fonte_legal_cbs
+#
+# Os dois testes que exercitavam `regras_tributarias_cache` (alíquota anulável e
+# precisão de NUMERIC) saíram com a migração 006, que derrubou a tabela — ver
+# Decisão 12 do DESIGN de REGRAS_TRIBUTARIAS_CACHE. A garantia que eles
+# defendiam ("a lei não fixou" é NULL, não um número inventado) continua viva e
+# testada onde ela de fato mora: `RegraFiscal.aliq_cbs is None` para 2027-2028
+# em `tests/test_tabela_aliquotas.py`, e a precisão de NUMERIC em
+# `tests/test_tipi_db.py::test_tipo_decimal_preservado_sem_virar_float`.
 
 
 # --- Asserção 3: migrações idempotentes e ordenadas ---
@@ -239,29 +220,6 @@ def test_migracoes_ordenam_pelo_prefixo_numerico():
 
     assert versoes == sorted(versoes)
     assert versoes[0].startswith("001")
-
-
-# --- Asserção 4: NUMERIC preserva precisão ---
-
-
-def test_numeric_preserva_aliquota_sem_virar_float(conexao):
-    """0,0009 arredondado é erro de cálculo tributário, não detalhe."""
-    from db.repositorio import buscar_regra_cache
-
-    with conexao.cursor() as cur:
-        cur.execute(
-            """
-            INSERT INTO regras_tributarias_cache
-                (ncm_code, ano_vigencia, aliquota_cbs, dispositivo_legal_ref)
-            VALUES ('99999999', 2026, 0.00090, 'teste de precisão')
-            """
-        )
-    conexao.commit()
-
-    regra = buscar_regra_cache(conexao, "99999999", 2026)
-
-    assert isinstance(regra.aliquota_cbs, Decimal)
-    assert regra.aliquota_cbs == Decimal("0.00090")
 
 
 # --- Asserção 5: JSONB do audit log ---

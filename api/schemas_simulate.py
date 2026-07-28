@@ -47,11 +47,46 @@ class AliquotasAplicadas(BaseModel):
     is_percentual: Decimal
 
 
+class CestaBasicaItem(BaseModel):
+    """Situação do item frente ao Anexo I. SEMPRE presente, inclusive quando não
+    se aplica: seis coisas diferentes colapsariam num booleano `false` — fora do
+    Anexo, EXPRESSAMENTE excluído pelo Anexo, NCM ilegível, consulta
+    indisponível e item de serviço (Decisão 7).
+
+    `EXCLUIDA_EXPRESSAMENTE` é a informação mais valiosa desta feature: o produto
+    está na posição citada pelo item, mas o próprio Anexo I o retira (foie gras
+    no item 19, salmonídeos e atuns no item 20). NÃO é o mesmo que
+    `FORA_DO_ANEXO`.
+    """
+
+    situacao: str
+    item: int | None = None  # 1..26
+    dispositivo_legal_ref: str | None = None  # "LCP 214/2025, art. 125, Anexo I, item 5"
+    descricao: str | None = None  # texto literal do item no DOU
+    ncm_correspondido: str | None = None  # grafia literal que casou: "02.07"
+    tipo_correspondencia: str | None = None  # EXATO | PREFIXO | EXCECAO
+    # Itens 15/25 e 4/26 citam códigos sobrepostos; `item` é o mais específico,
+    # esta lista mostra todos, para o auditor não perguntar por que não o outro.
+    itens_correspondentes: list[int] = []
+    # O que teria sido cobrado sem a redução — é assim que o controller demonstra
+    # o benefício da Cesta Básica, que é o segundo pain point do DEFINE.
+    cbs_percentual_sem_reducao: Decimal | None = None
+    ibs_percentual_sem_reducao: Decimal | None = None
+    valor_cbs_dispensado: Decimal | None = None
+    valor_ibs_dispensado: Decimal | None = None
+    # Por que a redução vale numa fase cuja alíquota é 0,9%/0,1% (Decisão 5).
+    fonte_legal_transicao: str | None = None
+
+
 class ItemDetalhado(BaseModel):
     sku: str
     ncm: str
     aliquotas_aplicadas: AliquotasAplicadas
     fundamentacao_legal: str
+    # Preenchido nos dois ramos do laço (mercadoria e serviço), nunca por
+    # default do modelo — um default silencioso faria um item de mercadoria com
+    # bug reportar "não se aplica".
+    cesta_basica: CestaBasicaItem | None = None
 
 
 class ResumoFinanceiro(BaseModel):
@@ -93,6 +128,41 @@ class IpiNaoResolvido(BaseModel):
     sku: str
     ncm: str
     situacao: str  # NCM_NAO_ENCONTRADO | CONSULTA_INDISPONIVEL
+
+
+class ItemNaoAvaliado(BaseModel):
+    """Sem isto, `total_cbs_dispensado = null` não diria QUAL item causou."""
+
+    sku: str
+    ncm: str
+    situacao: str  # NCM_NAO_RECONHECIDO | CONSULTA_INDISPONIVEL
+
+
+class CestaBasicaResumo(BaseModel):
+    """Agregado da Cesta Básica Nacional no payload inteiro.
+
+    Note que os totais são o que foi DISPENSADO (deixou de ser cobrado), não o
+    que foi cobrado: `resumo_financeiro.total_cbs` já vem líquido das reduções.
+    """
+
+    consulta_disponivel: bool
+    # Fato sobre o que a resposta de fato fez, não estimativa do que deveria ter
+    # feito — por isso segue preenchido mesmo em avaliação parcial. O nome
+    # carrega o "aplicada" para não ser lido como "elegíveis".
+    itens_com_reducao_aplicada: int = 0
+    # `None` quando QUALQUER item de mercadoria ficou sem avaliação — nunca um
+    # total parcial com cara de total (Decisão 9). `0.00` é resposta legítima:
+    # payload inteiro fora do Anexo.
+    total_cbs_dispensado: Decimal | None = None
+    total_ibs_dispensado: Decimal | None = None
+    itens_nao_avaliados: list[ItemNaoAvaliado] = []
+    fonte_legal: str = (
+        "LCP 214/2025, art. 125 e Anexo I — Cesta Básica Nacional de Alimentos: "
+        "alíquotas do IBS e da CBS reduzidas a zero. A correspondência é feita "
+        "por NCM/SH; vários itens do Anexo I impõem condições adicionais em seu "
+        "próprio texto (conformidade com legislação específica, tipo de produto) "
+        "que esta simulação não verifica."
+    )
 
 
 class ItemRegimeVigente(BaseModel):
@@ -169,3 +239,4 @@ class RespostaSimulacao(BaseModel):
     compensacao: Compensacao
     regime_vigente: RegimeVigenteResumo
     itens_regime_vigente: list[ItemRegimeVigente]
+    cesta_basica: CestaBasicaResumo | None = None

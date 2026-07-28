@@ -234,6 +234,43 @@ jobs:
           fi
           echo "OK ipi (total_ipi=${TOTAL_IPI})"
 
+          # E2E da Cesta Básica (LCP 214/2025, art. 125, Anexo I) contra a API
+          # pública: migração 005 aplicada, GRANT do papel de runtime, geração
+          # de prefixos e o override por item. Pela Decisão 8, uma falha em
+          # qualquer um deles NÃO produz erro — produz a alíquota geral, que é
+          # exatamente a resposta de antes da feature: 200, verde, e sem
+          # redução nenhuma.
+          #
+          # Chamada SEPARADA da anterior, de propósito: acrescentar a manteiga
+          # ao payload do smoke test do IPI faria `total_ipi` depender de
+          # 0405.10.00 estar na TIPI ingerida, e UM item de mercadoria não
+          # resolvido zera `total_ipi` para null — a asserção de IPI acima
+          # reprovaria o job por um motivo que nada tem a ver com a mudança.
+          # Dois payloads, duas asserções, zero acoplamento.
+          HTTP=$(curl -sS -o /tmp/sim_cesta.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-CESTA\",\"ncm\":\"04051000\",\"quantidade\":1,
+                             \"valor_unitario\":\"1000.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"RJ\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate (cesta básica) devolveu $HTTP (esperado 200)."
+            cat /tmp/sim_cesta.json
+            exit 1
+          fi
+
+          SITUACAO=$(jq -r '.itens_detalhados[0].cesta_basica.situacao' /tmp/sim_cesta.json)
+          DISPENSADO=$(jq -r '.cesta_basica.total_cbs_dispensado' /tmp/sim_cesta.json)
+          CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_cesta.json)
+          if [ "$DISPENSADO" = "null" ] || [ "$CBS_PCT" != "0" ]; then
+            echo "FALHA: manteiga (0405.10.00, item 5 do Anexo I) não recebeu alíquota zero."
+            echo "situacao=${SITUACAO} total_cbs_dispensado=${DISPENSADO} cbs_percentual=${CBS_PCT}"
+            echo "CONSULTA_INDISPONIVEL => migração 005 não aplicada ou GRANT ausente;"
+            echo "FORA_DO_ANEXO => seed truncado ou geração de prefixos quebrada."
+            exit 1
+          fi
+          echo "OK cesta básica (situacao=${SITUACAO}, cbs dispensado=${DISPENSADO})"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script

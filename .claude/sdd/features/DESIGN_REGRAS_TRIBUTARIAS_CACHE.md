@@ -14,7 +14,7 @@
 | **Author** | design-agent |
 | **DEFINE** | [DEFINE_REGRAS_TRIBUTARIAS_CACHE.md](./DEFINE_REGRAS_TRIBUTARIAS_CACHE.md) |
 | **BRAINSTORM** | [BRAINSTORM_REGRAS_TRIBUTARIAS_CACHE.md](./BRAINSTORM_REGRAS_TRIBUTARIAS_CACHE.md) |
-| **Status** | Ready for Build |
+| **Status** | 🔄 Built (ver `BUILD_REPORT_REGRAS_TRIBUTARIAS_CACHE.md`) — pendente das 2 verificações reais da Decisão 13 antes do `/ship` |
 | **Posição na sequência** | 2 de 11 (`ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md`) |
 
 ---

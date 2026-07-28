@@ -15,7 +15,7 @@
 | **Feature** | REGRAS_TRIBUTARIAS_CACHE |
 | **Date** | 2026-07-28 |
 | **Author** | define-agent |
-| **Status** | Designed (ver `DESIGN_REGRAS_TRIBUTARIAS_CACHE.md`) |
+| **Status** | 🔄 Built (ver `BUILD_REPORT_REGRAS_TRIBUTARIAS_CACHE.md`) — pendente das 2 verificações reais da Decisão 13 antes do `/ship` |
 | **Clarity Score** | 15/15 |
 
 ---
@@ -167,24 +167,29 @@ itens 19/20 como não-triviais. Ver "Open Questions" sobre o impacto disso no ta
 
 - [x] Conteúdo do Anexo I (26 itens, NCMs) verificado contra fonte oficial primária (Senado
       Federal/DOU), com URLs e data de acesso registrados neste documento — concluído nesta sessão
-- [ ] Schema novo (nome e forma a definir no `/design`) representa os 26 itens do Anexo I com
-      `dispositivo_legal_ref` citando "LCP 214/2025, art. 125, Anexo I, item N"
-- [ ] `/v1/tax/simulate` aplica alíquota zero de CBS/IBS a **100%** dos itens de mercadoria cujo
+- [x] Schema novo (nome e forma a definir no `/design`) representa os 26 itens do Anexo I com
+      `dispositivo_legal_ref` citando "LCP 214/2025, art. 125, Anexo I, item N" — `cesta_basica_anexo_i`
+      + `cesta_basica_anexo_i_ncm` (migração 005); contagens verificadas em teste: 26/76/19
+- [x] `/v1/tax/simulate` aplica alíquota zero de CBS/IBS a **100%** dos itens de mercadoria cujo
       NCM esteja entre os itens do Anexo I resolvidos por esta feature, em vez da alíquota geral
-      da fase
+      da fase — as **76 inclusões** do Anexo resolvem `APLICADA` em teste exaustivo
+      (`test_todas_as_76_inclusoes_do_anexo_resolvem_aplicada`); ⏳ contra o Cloud SQL real,
+      pendente da Decisão 13
 - [x] Decisão explícita e documentada sobre os 6 itens de correspondência não-trivial (1, 8, 15,
       19, 20, 23): resolvidos nesta feature (com a técnica usada) ou marcados como "não resolvido"
       sem promessa de zero silencioso — **os 6 são resolvidos**, ver Decisão 1 do DESIGN
       (correspondência é sempre prefixo de dígitos; "exato" é o prefixo de 8)
 - [x] Achado do Anexo XIV possivelmente revogado — **resolvido**: confirmado como revogado pela
       LC 227/2026 contra fonte primária (Senado Federal); Anexo I não afetado
-- [ ] `motor_calculo/` não ganha dependência de infraestrutura — mesmo padrão da feature 1
-      (lookup em `api/`/`db/repositorio.py`)
+- [x] `motor_calculo/` não ganha dependência de infraestrutura — mesmo padrão da feature 1
+      (lookup em `api/`/`db/repositorio.py`); `motor_calculo/reducoes.py` importa só `dataclasses`,
+      `decimal` e `ResultadoCalculo`, e `engine.py` não foi tocado
 - [x] `regras_tributarias_cache`/`buscar_regra_cache()` original: decisão explícita no `/design`
       sobre se são substituídas por schema novo, adaptadas, ou removidas — **removidas**
       (Decisão 12 do DESIGN, migração 006 com guarda de tabela vazia)
-- [ ] Zero regressão: itens de mercadoria com NCM fora do Anexo I continuam recebendo a alíquota
-      geral da fase, idêntico ao comportamento hoje
+- [x] Zero regressão: itens de mercadoria com NCM fora do Anexo I continuam recebendo a alíquota
+      geral da fase, idêntico ao comportamento hoje — AT-002 e AT-005; e as 126 asserções das
+      suítes anteriores (incluindo toda a feature 1 do IPI) passam **sem uma linha de edição**
 
 ---
 

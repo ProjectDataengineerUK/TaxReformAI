@@ -10,15 +10,14 @@ existe na TIPI" de "não consegui consultar" e sabe se vale reprocessar.
 from __future__ import annotations
 
 import logging
-import re
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from enum import StrEnum
 from typing import Any
 
-logger = logging.getLogger("api.ipi")
+from api.ncm import digitos_ncm
 
-_SO_DIGITOS = re.compile(r"\D")
+logger = logging.getLogger("api.ipi")
 
 
 class SituacaoIpi(StrEnum):
@@ -38,9 +37,14 @@ def normalizar_ncm(bruto: str) -> str | None:
     Qualquer coisa que não tenha exatamente 8 dígitos devolve None — códigos
     parciais (capítulo/posição) são cabeçalhos de categoria sem alíquota
     própria, e adivinhar por prefixo é justamente o que o DEFINE proíbe.
+
+    A canonização em si mora em `api/ncm.py` desde a Cesta Básica: uma só noção
+    de "NCM válido" para os dois tributos, senão o mesmo item apareceria
+    resolvido para um e "não reconhecido" para o outro na mesma resposta
+    (Decisão 10). Aqui fica apenas a pontuação, que é formato desta tabela.
     """
-    digitos = _SO_DIGITOS.sub("", bruto or "")
-    if len(digitos) != 8:
+    digitos = digitos_ncm(bruto)
+    if digitos is None:
         return None
     return f"{digitos[:4]}.{digitos[4:6]}.{digitos[6:8]}"
 

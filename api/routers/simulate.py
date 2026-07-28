@@ -4,14 +4,20 @@ from fastapi import APIRouter, Depends, HTTPException, status
 
 from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
+from api.cesta_basica import consultar_com_seguranca
+from api.cesta_basica import resolver_item as resolver_cesta_basica
 from api.db import get_db_pool
 from api.ipi import consultar_ipi_com_seguranca, normalizar_ncm, resolver_item
+from api.ncm import digitos_ncm, prefixos_ncm
 from api.schemas_simulate import (
     AliquotasAplicadas,
+    CestaBasicaItem,
+    CestaBasicaResumo,
     Compensacao,
     EscopoSimulacao,
     IpiNaoResolvido,
     ItemDetalhado,
+    ItemNaoAvaliado,
     ItemRegimeVigente,
     PayloadSimulacao,
     RegimeVigenteResumo,
@@ -20,6 +26,7 @@ from api.schemas_simulate import (
 )
 from motor_calculo.engine import TaxCalculatorEngine
 from motor_calculo.fases import fase_para
+from motor_calculo.reducoes import aplicar_reducao_a_zero
 from motor_calculo.regime_atual import (
     TRIBUTOS_INDISPONIVEIS,
     TabelaPisCofins,
@@ -114,15 +121,73 @@ def simular(
     )
     consulta_ipi = consultar_ipi_com_seguranca(db_pool, ncms_consultar)
 
+    # Segunda consulta, de domínio de falha SEPARADO da TIPI de propósito: uma
+    # tabela sem GRANT degrada só o seu tributo. Cada código de 8 dígitos vira 5
+    # prefixos candidatos (Decisão 2); `set` cobre códigos repetidos e prefixos
+    # comuns entre itens diferentes (100 itens do mesmo capítulo compartilham o
+    # prefixo de 4); `sorted` deixa a query determinística e comparável em teste.
+    # Payload só de serviços não abre conexão nenhuma.
+    prefixos_consultar = sorted(
+        {
+            prefixo
+            for item in payload.itens
+            if item.natureza == "MERCADORIA" and (codigo := digitos_ncm(item.ncm))
+            for prefixo in prefixos_ncm(codigo)
+        }
+    )
+    consulta_cesta = consultar_com_seguranca(db_pool, prefixos_consultar)
+
     total_ipi: Decimal | None = Decimal(0)
     itens_mercadoria = 0
     ipi_nao_resolvido: list[IpiNaoResolvido] = []
+
+    total_cbs_dispensado = Decimal(0)
+    total_ibs_dispensado = Decimal(0)
+    itens_com_reducao = 0
+    itens_nao_avaliados: list[ItemNaoAvaliado] = []
 
     for item in payload.itens:
         valor_base_item = item.valor_unitario * item.quantidade
         resultado = engine.calcular(valor_base=valor_base_item, ano_operacao=payload.ano_operacao)
 
+        # `cesta_basica` é preenchida nos DOIS ramos (mercadoria e serviço),
+        # nunca por default do modelo — mesma disciplina do `ipi_situacao`.
+        resolucao_cesta = resolver_cesta_basica(item.natureza, item.ncm, consulta_cesta)
+        cesta_basica_item = CestaBasicaItem(
+            situacao=resolucao_cesta.situacao.value,
+            item=resolucao_cesta.item,
+            dispositivo_legal_ref=resolucao_cesta.dispositivo_legal_ref,
+            descricao=resolucao_cesta.descricao,
+            ncm_correspondido=resolucao_cesta.texto_ncm,
+            tipo_correspondencia=resolucao_cesta.tipo_correspondencia,
+            itens_correspondentes=list(resolucao_cesta.itens_correspondentes),
+        )
+
+        if resolucao_cesta.aplicada:
+            cbs_dispensado, ibs_dispensado = resultado.valor_cbs, resultado.valor_ibs
+            resultado = aplicar_reducao_a_zero(resultado)
+            total_cbs_dispensado += cbs_dispensado
+            total_ibs_dispensado += ibs_dispensado
+            itens_com_reducao += 1
+            cesta_basica_item = cesta_basica_item.model_copy(
+                update={
+                    "cbs_percentual_sem_reducao": regra.aliq_cbs * 100,
+                    "ibs_percentual_sem_reducao": regra.aliq_ibs * 100,
+                    "valor_cbs_dispensado": cbs_dispensado,
+                    "valor_ibs_dispensado": ibs_dispensado,
+                    "fonte_legal_transicao": regra.fonte_legal_reducoes,
+                }
+            )
+        elif item.natureza == "MERCADORIA" and not resolucao_cesta.avaliada:
+            itens_nao_avaliados.append(
+                ItemNaoAvaliado(
+                    sku=item.sku, ncm=item.ncm, situacao=resolucao_cesta.situacao.value
+                )
+            )
+
         valor_bruto_total += valor_base_item
+        # Os totais saem do `resultado` JÁ REDUZIDO, nunca de `regra` — senão a
+        # resposta se contradiria (item com cbs_percentual 0 somando 0,9%).
         total_cbs += resultado.valor_cbs
         total_ibs += resultado.valor_ibs
         total_is += resultado.valor_is
@@ -133,11 +198,16 @@ def simular(
                 sku=item.sku,
                 ncm=item.ncm,
                 aliquotas_aplicadas=AliquotasAplicadas(
-                    cbs_percentual=regra.aliq_cbs * 100,
-                    ibs_percentual=regra.aliq_ibs * 100,
+                    cbs_percentual=(
+                        Decimal(0) if resolucao_cesta.aplicada else regra.aliq_cbs * 100
+                    ),
+                    ibs_percentual=(
+                        Decimal(0) if resolucao_cesta.aplicada else regra.aliq_ibs * 100
+                    ),
                     is_percentual=regra.aliq_is * 100,
                 ),
                 fundamentacao_legal=resultado.fonte_legal,
+                cesta_basica=cesta_basica_item,
             )
         )
 
@@ -258,6 +328,71 @@ def simular(
     else:
         total_ipi = None
 
+    # Um único predicado governa os dois totais dispensados e a advertência
+    # (Decisão 9): um total parcial é indistinguível de um total completo na
+    # tela de um departamento fiscal, e este número tem uso comercial direto
+    # ("quanto a cesta básica economizou"). `itens_com_reducao_aplicada` segue
+    # preenchido porque é fato sobre o que a resposta fez, não estimativa.
+    #
+    # O predicado é a LISTA vazia, não `consulta_cesta.disponivel and ...` como
+    # o Pattern 7 escreve: os dois são equivalentes sempre que existe ao menos
+    # um item de mercadoria (se a consulta caiu, TODOS eles entram na lista),
+    # e divergem só no payload sem mercadoria nenhuma — onde a versão do padrão
+    # devolveria `total = null` com `itens_nao_avaliados` VAZIO, quebrando a
+    # própria invariante que a Decisão 9 enuncia ("null ∧ lista não vazia") e
+    # deixando o cliente sem saber qual item faltou (resposta: nenhum). Pior,
+    # ela daria respostas diferentes para o mesmo payload de serviços conforme
+    # o pool fosse `None` (null) ou estivesse quebrado (0,00), já que sem
+    # prefixo a consultar nenhuma conexão chega a ser tentada.
+    # `consulta_disponivel` continua no resumo para quem quiser o outro fato.
+    avaliacao_completa = not itens_nao_avaliados
+    resumo_cesta = CestaBasicaResumo(
+        consulta_disponivel=consulta_cesta.disponivel,
+        itens_com_reducao_aplicada=itens_com_reducao,
+        # Em centavos mesmo quando a soma é zero, pela mesma razão do total_ipi:
+        # "0" tem cara de campo não preenchido, "0.00" tem cara do total que é.
+        total_cbs_dispensado=(
+            total_cbs_dispensado.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if avaliacao_completa
+            else None
+        ),
+        total_ibs_dispensado=(
+            total_ibs_dispensado.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+            if avaliacao_completa
+            else None
+        ),
+        itens_nao_avaliados=itens_nao_avaliados,
+    )
+
+    # Degradar não é silenciar: quando a avaliação foi parcial, a advertência
+    # diz explicitamente que CBS/IBS podem estar SUPERESTIMADOS — a direção do
+    # erro importa e é o que torna esta degradação aceitável (Decisão 8).
+    if not avaliacao_completa:
+        situacoes_cesta = sorted({entrada.situacao for entrada in itens_nao_avaliados})
+        motivo = (
+            f"{len(itens_nao_avaliados)} item(ns) de mercadoria sem avaliação "
+            f"({', '.join(situacoes_cesta)})"
+        )
+        advertencia_cesta = (
+            "A Cesta Básica Nacional (LCP 214/2025, art. 125, Anexo I) NÃO pôde ser "
+            f"verificada integralmente: {motivo} — CBS/IBS desses itens seguem com a "
+            "alíquota geral da fase e podem estar SUPERESTIMADOS; ver "
+            "cesta_basica.itens_nao_avaliados."
+        )
+    elif itens_com_reducao:
+        advertencia_cesta = (
+            f"Aplica alíquota zero de CBS/IBS a {itens_com_reducao} item(ns) da Cesta "
+            "Básica Nacional (LCP 214/2025, art. 125, Anexo I; transição pelo art. "
+            "348, III, 'a'), com o item do Anexo citado em cada um. A correspondência "
+            "é por NCM/SH e não verifica as condições adicionais que o texto de "
+            "vários itens exige."
+        )
+    else:
+        advertencia_cesta = (
+            "Nenhum item do payload corresponde à Cesta Básica Nacional "
+            "(LCP 214/2025, art. 125, Anexo I)."
+        )
+
     # Durante a transição os tributos do regime antigo continuam devidos. O
     # escopo é dinâmico: ICMS_INTERESTADUAL/ICMS_INTERNO/ISS dependem de quais
     # naturezas/UFs apareceram nos itens (mutuamente exclusivos por item), IPI
@@ -309,7 +444,8 @@ def simular(
             "dado externo: PIS/COFINS quando regime_apuracao é informado; ICMS "
             "interestadual ou interno conforme uf_origem/uf_destino de cada item; "
             "ISS (só piso 2%/teto 5% da LC 116/2003, não a alíquota municipal "
-            f"exata) para itens com natureza=SERVICO. {advertencia_ipi} O valor "
+            f"exata) para itens com natureza=SERVICO. {advertencia_ipi} "
+            f"{advertencia_cesta} O valor "
             "líquido não representa a carga tributária total da operação."
         ),
     )
@@ -343,6 +479,7 @@ def simular(
             tributos_nao_calculados=tributos_nao_calculados,
         ),
         itens_regime_vigente=itens_regime_vigente,
+        cesta_basica=resumo_cesta,
     )
 
     registrar_com_seguranca(
@@ -354,6 +491,8 @@ def simular(
             f"CBS {total_cbs} + IBS {total_ibs} + IS {total_is} sobre "
             f"{valor_bruto_total} ({fase.value}). "
             f"IPI {total_ipi if total_ipi is not None else 'não resolvido'}. "
+            f"Cesta Básica (art. 125): {itens_com_reducao} item(ns) com alíquota "
+            "zero de CBS/IBS. "
             f"{resposta.compensacao.fonte_legal or ''}"
         ),
         payload_calculo=payload.model_dump(mode="json"),

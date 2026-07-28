@@ -37,6 +37,11 @@ class TabelaAliquotasSeed:
                 "débitos suficientes, pode ser compensado com qualquer outro tributo "
                 "federal ou ressarcido em até 60 dias"
             ),
+            fonte_legal_reducoes=(
+                "LCP 214/2025, art. 348, III, 'a' — as alíquotas do IBS e da CBS "
+                "previstas nos arts. 343 e 346 são aplicadas com a respectiva redução "
+                "no caso das operações sujeitas a alíquota reduzida"
+            ),
             fontes_por_tributo={
                 "CBS": "LCP 214/2025, art. 346 — 0,9% (nove décimos por cento)",
                 "IBS": "LCP 214/2025, art. 343 — alíquota estadual de 0,1% (um décimo por cento)",
@@ -65,6 +70,16 @@ class TabelaAliquotasSeed:
                 "CBS e IS ainda dependem de norma futura"
             ),
             confirmado_em_lei=False,
+            # Seed correto e sem uso hoje: a fase inteira é recusada com 422
+            # pela CBS pendente do art. 347, então nenhuma redução chega a ser
+            # avaliada. Passa a valer sozinho no dia em que a alíquota de
+            # referência for fixada — e citar aqui a regra de 2026 seria erro
+            # de citação nascendo pronto.
+            fonte_legal_reducoes=(
+                "LCP 214/2025, art. 344, parágrafo único, I (IBS) e art. 347, § 1º, I "
+                "(CBS) — as alíquotas de 2027-2028 são aplicadas com a respectiva "
+                "redução no caso das operações sujeitas a alíquota reduzida"
+            ),
             fontes_por_tributo={
                 "CBS": (
                     "LCP 214/2025, art. 347 — alíquota de referência fixada nos termos do "
