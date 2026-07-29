@@ -16,7 +16,7 @@
 | **Feature** | ANEXOS_REDUCAO_ZERO_XII_XIII_XV |
 | **Date** | 2026-07-28 |
 | **Author** | define-agent |
-| **Status** | Designed (ver `DESIGN_ANEXOS_REDUCAO_ZERO_XII_XIII_XV.md`, 2026-07-28) |
+| **Status** | ✅ Shipped (ver `SHIPPED_2026-07-29.md`) |
 | **Clarity Score** | 15/15 |
 
 ---
