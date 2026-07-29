@@ -42,7 +42,7 @@ class AliquotaIpi:
 
 
 def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
-    """Lookup em lote da TIPI. Sem RLS: como `cesta_basica_anexo_i`, é dado
+    """Lookup em lote da TIPI. Sem RLS: como `anexos_reducao_zero`, é dado
     legal público, igual para todo tenant.
 
     UMA query para N códigos — `= ANY(%s)` com uma lista Python é o idioma
@@ -80,29 +80,45 @@ def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
 
 
 @dataclass(frozen=True)
-class PrefixoCestaBasica:
-    """Uma linha de `cesta_basica_anexo_i_ncm` já com o item resolvido pelo JOIN.
+class PrefixoReducaoZero:
+    """Uma linha de `anexos_reducao_zero_ncm` já com o item resolvido pelo JOIN.
 
     `excecao=True` significa que este prefixo EXCLUI a mercadoria do item — e
-    exclui só DESTE item, nunca dos demais (Decisão 3). A lei escreve a exclusão
-    dentro do item ("02.07 [...] exceto os produtos dos códigos 0207.43.00 e
-    0207.53.00"), então uma exceção global permitiria que uma exclusão do item
-    20 anulasse uma inclusão do item 19 sem que ninguém tivesse escrito isso.
+    exclui só DESTE item, nunca dos demais. A lei escreve a exclusão dentro do
+    item ("9021.3 [...] exceto os produtos classificados nos códigos 9021.39.91
+    e 9021.39.99"), então uma exceção global permitiria que uma exclusão do
+    Anexo XV anulasse uma inclusão do Anexo XII sem que ninguém tivesse
+    escrito isso.
+
+    `anexo_ordem` vem da coluna, não de um mapa romano→número em Python: com
+    dois lugares declarando a mesma verdade, o dia em que só um for atualizado
+    produz uma ordem de desempate silenciosamente errada (Decisão 3).
+
+    `descricao_contexto` é a descrição do item-pai quando esta linha pertence a
+    um sub-item — sem ela, a resposta citaria "Sem mecanismo de propulsão"
+    (Anexo XIII, item 2.1) como fundamentação legal de uma cadeira de rodas
+    (Decisão 7).
     """
 
+    anexo: str
+    anexo_ordem: int
     item: int
+    sub_item: int
     prefixo: str
     excecao: bool
     texto_ncm: str
     alinea: str | None
     descricao: str
+    descricao_contexto: str | None
     dispositivo_legal_ref: str
 
 
-def buscar_cesta_basica_por_prefixo(
+def buscar_reducao_zero_por_prefixo(
     conexao, prefixos: list[str]
-) -> list[PrefixoCestaBasica]:
-    """Lookup em lote do Anexo I. Sem RLS: dado legal público, igual para todo tenant.
+) -> list[PrefixoReducaoZero]:
+    """Lookup em lote dos 4 Anexos de alíquota zero (I, XII, XIII e XV).
+
+    Sem RLS: dado legal público, igual para todo tenant.
 
     UMA query para os prefixos de todos os itens do payload. Devolve tanto
     inclusões quanto exceções — uma exceção só é relevante quando ela própria é
@@ -110,11 +126,11 @@ def buscar_cesta_basica_por_prefixo(
     consulta.
 
     O `= ANY(%s)` com lista Python é o mesmo idioma de `buscar_ipi_por_ncm`, e é
-    o que a Decisão 2 preserva ao expandir o prefixo do lado do Python: a coluna
-    fica do lado curto da igualdade, o índice continua valendo e nenhum trecho
-    de SQL precisa saber o que conta como prefixo.
+    o que a Decisão 2 do Anexo I preserva ao expandir o prefixo do lado do
+    Python: a coluna fica do lado curto da igualdade, o índice continua valendo
+    e nenhum trecho de SQL precisa saber o que conta como prefixo.
 
-    Propaga exceção de propósito: quem decide degradar é `api/cesta_basica.py`
+    Propaga exceção de propósito: quem decide degradar é `api/reducao_zero.py`
     (mesma divisão da Decisão 6 do DESIGN de IPI_TIPI_MOTOR_CALCULO). Lista
     vazia de retorno significa "nenhum prefixo casou", nunca "falhou".
     """
@@ -124,17 +140,22 @@ def buscar_cesta_basica_por_prefixo(
     with conexao.cursor() as cur:
         cur.execute(
             """
-            SELECT p.item, p.prefixo, p.excecao, p.texto_ncm, p.alinea,
-                   i.descricao, i.dispositivo_legal_ref
-            FROM cesta_basica_anexo_i_ncm p
-            JOIN cesta_basica_anexo_i i ON i.item = p.item
+            SELECT i.anexo, i.anexo_ordem, p.item, p.sub_item, p.prefixo, p.excecao,
+                   p.texto_ncm, p.alinea, i.descricao, pai.descricao,
+                   i.dispositivo_legal_ref
+            FROM anexos_reducao_zero_ncm p
+            JOIN anexos_reducao_zero i
+              ON i.anexo = p.anexo AND i.item = p.item AND i.sub_item = p.sub_item
+            LEFT JOIN anexos_reducao_zero pai
+              ON pai.anexo = i.anexo AND pai.item = i.item
+             AND pai.sub_item = 0 AND i.sub_item > 0
             WHERE p.prefixo = ANY(%s)
             """,
             (list(prefixos),),
         )
         # A ordem dos campos do SELECT é a ordem do dataclass — se um mudar, o
         # outro muda junto.
-        return [PrefixoCestaBasica(*linha) for linha in cur.fetchall()]
+        return [PrefixoReducaoZero(*linha) for linha in cur.fetchall()]
 
 
 @contextmanager

@@ -33,8 +33,8 @@ on:
         options:
           - "sim"
           - "nao"
-      verificar_cesta_basica:
-        description: "Provar que o papel de RUNTIME lê o Anexo I (Cesta Básica) e que as exceções dos itens 19/20 são respeitadas"
+      verificar_reducao_zero:
+        description: "Provar que o papel de RUNTIME lê os 4 Anexos de alíquota zero (I, XII, XIII, XV), incluindo o prefixo de 2 dígitos e o desempate de 3 vias"
         required: true
         default: "sim"
         type: choice
@@ -150,16 +150,22 @@ jobs:
           python scripts/verificar_ipi_producao.py
 
       # Mesmo modo de falha silencioso da verificação acima, e pior: pela
-      # Decisão 8 do DESIGN da Cesta Básica, um GRANT faltando faz a redução do
-      # art. 125 simplesmente não ser aplicada — 200, verde, e com a alíquota
-      # geral, que é EXATAMENTE a resposta de antes da feature. Este passo é o
-      # único lugar em que a diferença entre "funciona" e "não faz nada" aparece.
-      - name: Verificar leitura da Cesta Básica (Anexo I) pelo papel de runtime
-        if: ${{ inputs.verificar_cesta_basica == 'sim' }}
+      # degradação conservadora dos Anexos de alíquota zero, um GRANT faltando
+      # faz a redução simplesmente não ser aplicada — 200, verde, e com a
+      # alíquota geral, que é EXATAMENTE a resposta de antes da feature. Este
+      # passo é o único lugar em que a diferença entre "funciona" e "não faz
+      # nada" aparece.
+      #
+      # Depois da migração 007 (que RENOMEIA as tabelas do Anexo I) e da 008
+      # (Anexos XII/XIII/XV), são 7 casos: 3 de não-regressão do Anexo I e 4 dos
+      # mecanismos novos, que podem falhar sozinhos sem afetar o Anexo I —
+      # sub-item, desempate triplo, exceção operante e o prefixo de 2 dígitos.
+      - name: Verificar leitura dos Anexos de alíquota zero pelo papel de runtime
+        if: ${{ inputs.verificar_reducao_zero == 'sim' }}
         run: |
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
-          python scripts/verificar_cesta_basica_producao.py
+          python scripts/verificar_reducao_zero_producao.py
 
       - name: Encerrar o proxy
         if: always()

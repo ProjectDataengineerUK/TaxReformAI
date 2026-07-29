@@ -35,11 +35,12 @@ class RegraFiscal:
     compensavel: bool = False
     fonte_legal_compensacao: str | None = None
 
-    # Por que uma redução a zero (Cesta Básica, art. 125) vale numa fase cuja
-    # alíquota já é 0,9%/0,1%. Conhecimento de FASE, então mora com as demais
-    # citações por fase: se a frase morasse em `api/cesta_basica.py`, a resposta
-    # citaria a regra de 2026 numa simulação de 2027 tão logo aquela fase deixe
-    # de ser recusada — erro de citação que ninguém veria (Decisão 5).
+    # Por que uma redução a zero (Anexos I/art. 125, XII/art. 144, XIII/art. 145
+    # e XV/art. 148) vale numa fase cuja alíquota já é 0,9%/0,1%. Conhecimento de
+    # FASE, então mora com as demais citações por fase: se a frase morasse em
+    # `api/reducao_zero.py`, a resposta citaria a regra de 2026 numa simulação de
+    # 2027 tão logo aquela fase deixe de ser recusada — erro de citação que
+    # ninguém veria (Decisão 5).
     fonte_legal_reducoes: str | None = None
 
     def tributos_indisponiveis(self) -> list[str]:

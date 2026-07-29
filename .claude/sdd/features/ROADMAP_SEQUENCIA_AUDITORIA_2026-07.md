@@ -1,9 +1,22 @@
 # ROADMAP: Sequência Pós-Auditoria (Julho/2026)
 
 > Registro de planejamento — não é um documento SDD por si só (não passa por /define,
-> /design, /build, /ship). Serve de mapa para as ~11 sessões de brainstorm/define/design/
+> /design, /build, /ship). Serve de mapa para as sessões de brainstorm/define/design/
 > build/ship que virão a seguir, uma feature de cada vez, na ordem definida aqui.
 > Atualize a coluna **Status** conforme cada feature for shipada.
+>
+> **2026-07-28: adicionadas as posições 12-17** (segunda leva, ver seção dedicada abaixo) —
+> os 16 Anexos restantes da LCP 214/2025 (I já shipado em `REGRAS_TRIBUTARIAS_CACHE`) mais o
+> Simples Nacional. Nota de numeração: as posições ficam registradas como 12-17 (a tabela
+> ativa já vai até a Ordem 11 e não é renumerada), mas isso é só rótulo — ver a **ordem de
+> execução** abaixo, que é o que manda de fato.
+>
+> **2026-07-28 (correção, mesmo dia): ordem de EXECUÇÃO invertida.** A decisão original era
+> a segunda leva (12-17) rodar *depois* das posições 3-11. O usuário reverteu isso na mesma
+> sessão: as posições **12-17 rodam primeiro**, e só depois as posições 3-11 (`API_EMPRESA_SKUS`
+> em diante) são retomadas. Os números de posição (Ordem) NÃO mudam — servem só de
+> identificador, não de fila —, mas a ordem real de trabalho é: 1, 2 (já shipadas) → **12, 13,
+> 14, 15, 16, 17** → 3, 4, 5, 6, 7, 8, 9, 10, 11.
 
 ## Origem
 
@@ -39,6 +52,88 @@ usuário (Jonatas) decidiu em 2026-07-27:
 | 9 | 9 | `DIAGNOSTICO_BUSCA_HIBRIDA` | Root-cause do miss 4/5 no Bloco A de `ingestao.yml` (near-duplicado/boilerplate dentro da Resolução CGIBS nº 6/2026) | ⚪ Não iniciado |
 | 10 | 10 | `BIGQUERY_DATA_WAREHOUSE` | Provisionar BigQuery para consultas analíticas em histórico de simulações (seção 5 do blueprint) | ⚪ Não iniciado |
 | 11 | 11 | `FILA_ASSINCRONA_CELERY_REDIS` | Fila assíncrona (Celery/Redis) para sustentar 50.000+ SKUs dos planos Business/Enterprise | ⚪ Não iniciado |
+
+## Segunda leva: os 16 Anexos restantes da LCP 214/2025 + Simples Nacional (posições 12-17)
+
+### Origem
+
+`REGRAS_TRIBUTARIAS_CACHE` (posição 2, shipada em 2026-07-28) cobriu só o Anexo I (Cesta
+Básica Nacional, art. 125). Os outros 16 Anexos (II-XVII, já excluído o XIV — revogado pela
+LC 227/2026, ver `.claude/sdd/archive/LC_227_2026_ATUALIZACAO_LEGAL/`) ficaram fora de escopo
+por decisão explícita daquela sessão. O usuário confirmou que cobrir os 16 restantes não é
+opcional, e pediu uma sessão de `/brainstorm` dedicada só a decidir como agrupá-los em
+features (mesma disciplina que já levou a quebrar a auditoria original em 11 features
+sequenciais, não uma feature monolítica).
+
+Essa sessão (2026-07-28) verificou os 21 Anexos restantes (II-XIII, XV-XXIII) contra fonte
+primária real (`legis.senado.leg.br/norma/40180341/publicacao/{id}`, DOU Edição Extra de
+16/01/2025, nº 11-B — mesma fonte já usada no `/design` do Anexo I) e encontrou uma correção
+relevante ao brainstorm original: os Anexos **XVIII-XXIII não são "produção de efeitos
+futura" dos Anexos I-V/VII de redução**, como uma fonte secundária levou a crer. São os
+**Anexos I, II, III, IV, V e VII do Simples Nacional (LC 123/2006)**, reproduzidos dentro da
+LCP 214/2025 com tabelas de partilha (IRPJ/CSLL/CBS/CPP/ICMS/IBS) por faixa de receita, ano a
+ano de 2027 a pelo menos 2033 — um regime tributário à parte, que `motor_calculo/
+regime_atual.py` não modela hoje de nenhuma forma, sem nenhuma dependência técnica dos
+Anexos de redução.
+
+**Aviso herdado para o `/define` de cada uma das 6 features abaixo**: a investigação da LC
+227/2026 (`.claude/sdd/archive/LC_227_2026_ATUALIZACAO_LEGAL/`) catalogou alterações só nos
+artigos já citados no código (343, 344, 346, 347, 348) — **nunca verificou se a LC 227/2026
+também alterou algum dos Anexos II-XXIII**. Cada `/define` desta leva deve confirmar isso
+contra fonte primária antes de aceitar qualquer conteúdo de Anexo como definitivo.
+
+### Decisão de agrupamento (usuário, 2026-07-28)
+
+Abordagem híbrida: agrupar por mecanismo de cálculo (zero vs. percentual) **e** por tipo de
+chave de correspondência (NCM/bens vs. NBS/serviços), isolando à parte o que não é nem
+produto nem serviço (XVI) e o que é um tributo diferente (XVII) ou um regime diferente
+(Simples Nacional, XVIII-XXIII). Anexos que misturam as duas chaves no mesmo Anexo (IX, X,
+XI) vão para o grupo da chave **dominante**; os itens da chave minoritária ficam
+documentados como não resolvidos naquela feature — mesmo padrão já usado para os itens 19/20
+do Anexo I.
+
+### Classificação por Anexo (verificada contra fonte primária nesta sessão)
+
+| Anexo | Assunto | Redução/Natureza | Chave | Vai para |
+|-------|---------|-------------------|-------|----------|
+| XII | Dispositivos médicos | zero | NCM puro | Posição 12 |
+| XIII | Acessibilidade (pessoas com deficiência) | zero | NCM puro | Posição 12 |
+| XV | Hortícolas, frutas e ovos | 100% (= zero) | NCM puro | Posição 12 |
+| IV | Dispositivos médicos | 60% | NCM puro | Posição 13 |
+| V | Acessibilidade | 60% | NCM puro | Posição 13 |
+| VI | Nutrição enteral/parenteral | 60% | NCM puro | Posição 13 |
+| VII | Alimentos | 60% | NCM puro | Posição 13 |
+| VIII | Higiene pessoal/limpeza | 60% | NCM puro | Posição 13 |
+| IX | Insumos agropecuários/aquícolas | 60% | **misto** (NCM dominante) | Posição 13 (itens NBS ficam pendentes) |
+| II | Educação | 60% | NBS puro | Posição 14 |
+| III | Saúde | 60% | NBS puro | Posição 14 |
+| X | Produções artísticas/culturais/audiovisuais | 60% | **misto** (NBS dominante) | Posição 14 (itens NCM ficam pendentes) |
+| XI | Segurança/cibersegurança | 60% | **misto** (NBS dominante) | Posição 14 (itens NCM ficam pendentes) |
+| XVI | Piso da alíquota própria dos entes federativos | tabela por ano (2029-2033+), valor nacional único, não por ente | nenhuma (não é produto/serviço) | Posição 15 |
+| XVII | Base de incidência do Imposto Seletivo | bens (NCM) + 1 categoria de serviço sem código | mista, tributo diferente (IS, não CBS/IBS) | Posição 16 |
+| XVIII-XXIII | Anexos I, II, III, IV, V, VII do Simples Nacional (LC 123/2006), com partilha CBS/IBS 2027-2033+ | regime tributário à parte | nenhuma (regime, não produto/serviço) | Posição 17 |
+| XIV | — | **Revogado pela LC 227/2026** | — | Fora de escopo (já resolvido, ver `LC_227_2026_ATUALIZACAO_LEGAL/`) |
+
+### Sequência (posições 12-17)
+
+| Ordem | Feature | Anexos | Descrição resumida | Status |
+|-------|---------|--------|----------------------|--------|
+| 12 | `ANEXOS_REDUCAO_ZERO_XII_XIII_XV` | XII, XIII, XV | Redução a zero/100% de CBS/IBS por NCM — reaproveita o mecanismo já validado do Anexo I (`aplicar_reducao_a_zero`, `api/ncm.py`, prefixo de dígitos), sem função de cálculo nova | ⚪ Não iniciado |
+| 13 | `ANEXOS_REDUCAO_PERCENTUAL_NCM` | IV, V, VI, VII, VIII, IX | Redução de 60% de CBS/IBS por NCM — exige função nova (`aplicar_reducao_percentual` ou equivalente, já que hoje só existe a versão "zera tudo"); itens de chave NBS do Anexo IX documentados como não resolvidos nesta feature | ⚪ Não iniciado |
+| 14 | `ANEXOS_REDUCAO_PERCENTUAL_NBS` | II, III, X, XI | Redução de 60% de CBS/IBS por NBS — infraestrutura de lookup por `nbs_code` inteiramente nova (schema, chave, tabela); itens de chave NCM dos Anexos X/XI documentados como não resolvidos nesta feature | ⚪ Não iniciado |
+| 15 | `ANEXO_XVI_PISO_ALIQUOTA_PROPRIA` | XVI | Piso nacional (por ano, 2029-2033+) da alíquota própria de Estados/Municípios em proporção à alíquota de referência — estrutura isolada, não é produto/serviço | ⚪ Não iniciado |
+| 16 | `ANEXO_XVII_IMPOSTO_SELETIVO_INCIDENCIA` | XVII | Base de incidência do Imposto Seletivo (bens NCM + 1 categoria de serviço) — só define O QUE é tributado; a alíquota continua pendente de lei ordinária, já modelada como `None` em `motor_calculo/tabela_aliquotas.py` | ⚪ Não iniciado |
+| 17 | `SIMPLES_NACIONAL_CBS_IBS_TRANSICAO` | XVIII-XXIII | Integração de CBS/IBS à partilha do Simples Nacional (Anexos I/II/III/IV/V/VII da LC 123/2006, tabelas ano a ano 2027-2033+) — regime tributário inteiro, inexistente hoje em `motor_calculo/regime_atual.py`; sem dependência técnica das 5 features anteriores desta leva | ⚪ Não iniciado |
+
+Documentos de brainstorm de cada uma, com o detalhamento completo (aprovadas nesta sessão,
+prontas para `/define`):
+
+- `.claude/sdd/features/BRAINSTORM_ANEXOS_REDUCAO_ZERO_XII_XIII_XV.md`
+- `.claude/sdd/features/BRAINSTORM_ANEXOS_REDUCAO_PERCENTUAL_NCM.md`
+- `.claude/sdd/features/BRAINSTORM_ANEXOS_REDUCAO_PERCENTUAL_NBS.md`
+- `.claude/sdd/features/BRAINSTORM_ANEXO_XVI_PISO_ALIQUOTA_PROPRIA.md`
+- `.claude/sdd/features/BRAINSTORM_ANEXO_XVII_IMPOSTO_SELETIVO_INCIDENCIA.md`
+- `.claude/sdd/features/BRAINSTORM_SIMPLES_NACIONAL_CBS_IBS_TRANSICAO.md`
 
 ## Item de monitoramento (fora da sequência ativa)
 

@@ -259,17 +259,54 @@ jobs:
             exit 1
           fi
 
-          SITUACAO=$(jq -r '.itens_detalhados[0].cesta_basica.situacao' /tmp/sim_cesta.json)
-          DISPENSADO=$(jq -r '.cesta_basica.total_cbs_dispensado' /tmp/sim_cesta.json)
+          SITUACAO=$(jq -r '.itens_detalhados[0].reducao_zero.situacao' /tmp/sim_cesta.json)
+          DISPENSADO=$(jq -r '.reducao_zero.total_cbs_dispensado' /tmp/sim_cesta.json)
           CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_cesta.json)
           if [ "$DISPENSADO" = "null" ] || [ "$CBS_PCT" != "0" ]; then
             echo "FALHA: manteiga (0405.10.00, item 5 do Anexo I) não recebeu alíquota zero."
             echo "situacao=${SITUACAO} total_cbs_dispensado=${DISPENSADO} cbs_percentual=${CBS_PCT}"
-            echo "CONSULTA_INDISPONIVEL => migração 005 não aplicada ou GRANT ausente;"
+            echo "CONSULTA_INDISPONIVEL => migração 005/007 não aplicada ou GRANT ausente;"
             echo "FORA_DO_ANEXO => seed truncado ou geração de prefixos quebrada."
             exit 1
           fi
           echo "OK cesta básica (situacao=${SITUACAO}, cbs dispensado=${DISPENSADO})"
+
+          # E2E do prefixo de CAPÍTULO (2 dígitos) — Anexo XV, item 4, art. 148.
+          # É o único mecanismo desta feature que pode falhar sozinho e em
+          # silêncio: se `api/ncm.py::_COMPRIMENTOS_PREFIXO` e a CHECK
+          # `prefixo_comprimento_valido` (migração 007) saírem de sincronia, o
+          # prefixo '06' nunca é gerado (ou nunca é inserível) e TODO o resto
+          # continua verde — a manteiga acima inclusive.
+          #
+          # Terceira chamada, com payload próprio, pelo mesmo motivo da segunda:
+          # 06031100 NÃO precisa estar na TIPI ingerida, e é justamente por isso
+          # que serve — a redução a zero por capítulo não depende do cadastro da
+          # TIPI, e esta asserção não menciona IPI.
+          HTTP=$(curl -sS -o /tmp/sim_capitulo.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-CAPITULO-6\",\"ncm\":\"06031100\",\"quantidade\":1,
+                             \"valor_unitario\":\"1000.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"RJ\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate (Capítulo 6) devolveu $HTTP (esperado 200)."
+            cat /tmp/sim_capitulo.json
+            exit 1
+          fi
+
+          SITUACAO=$(jq -r '.itens_detalhados[0].reducao_zero.situacao' /tmp/sim_capitulo.json)
+          ANEXO=$(jq -r '.itens_detalhados[0].reducao_zero.anexo' /tmp/sim_capitulo.json)
+          ITEM=$(jq -r '.itens_detalhados[0].reducao_zero.item' /tmp/sim_capitulo.json)
+          DISPENSADO=$(jq -r '.reducao_zero.total_cbs_dispensado' /tmp/sim_capitulo.json)
+          CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_capitulo.json)
+          if [ "$DISPENSADO" = "null" ] || [ "$CBS_PCT" != "0" ]; then
+            echo "FALHA: flores (06031100, Capítulo 6 = item 4 do Anexo XV) não receberam alíquota zero."
+            echo "situacao=${SITUACAO} anexo=${ANEXO} item=${ITEM} total_cbs_dispensado=${DISPENSADO} cbs_percentual=${CBS_PCT}"
+            echo "CONSULTA_INDISPONIVEL => migrações 007/008 não aplicadas ou GRANT ausente;"
+            echo "FORA_DO_ANEXO => o prefixo de 2 dígitos não está sendo gerado ou não foi inserido."
+            exit 1
+          fi
+          echo "OK capítulo 6 (Anexo ${ANEXO}, item ${ITEM}, cbs dispensado=${DISPENSADO})"
 
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
