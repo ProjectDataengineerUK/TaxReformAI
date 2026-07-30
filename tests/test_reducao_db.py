@@ -93,14 +93,26 @@ def test_seed_carregou_127_inclusoes_e_24_excecoes(conexao):
 
 def test_o_ordinal_de_cada_anexo_e_unico_e_numerico(conexao):
     """Numeral romano não ordena lexicograficamente — o ordinal existe para o
-    desempate poder ordenar Anexos (Decisão 3)."""
+    desempate poder ordenar Anexos (Decisão 3). Vive só no catálogo desde a
+    migração 009 — uma verdade, um lugar."""
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT anexo, anexo_ordem FROM anexos_reducao ORDER BY anexo_ordem"
+            "SELECT anexo, anexo_ordem FROM anexos_reducao_catalogo ORDER BY anexo_ordem"
         )
         pares = cur.fetchall()
 
-    assert pares == [("I", 1), ("XII", 12), ("XIII", 13), ("XV", 15)]
+    assert pares == [
+        ("I", 1),
+        ("IV", 4),
+        ("V", 5),
+        ("VI", 6),
+        ("VII", 7),
+        ("VIII", 8),
+        ("IX", 9),
+        ("XII", 12),
+        ("XIII", 13),
+        ("XV", 15),
+    ]
 
 
 def test_comprimentos_de_prefixo_presentes_sao_a_lista_da_ncm(conexao):
@@ -182,11 +194,12 @@ def test_so_os_dois_cabecalhos_conhecidos_nao_tem_linha_de_prefixo(conexao):
         cur.execute(
             """
             SELECT i.anexo, i.item, i.sub_item FROM anexos_reducao i
+            JOIN anexos_reducao_catalogo c ON c.anexo = i.anexo
             WHERE NOT EXISTS (
                 SELECT 1 FROM anexos_reducao_ncm p
                 WHERE p.anexo = i.anexo AND p.item = i.item AND p.sub_item = i.sub_item
             )
-            ORDER BY i.anexo_ordem, i.item
+            ORDER BY c.anexo_ordem, i.item
             """
         )
         sem_prefixo = cur.fetchall()
@@ -282,31 +295,34 @@ def test_check_aceita_o_prefixo_de_dois_digitos_que_a_migracao_005_proibia(conex
     conexao.rollback()
 
 
-def test_check_recusa_anexo_fora_do_conjunto_de_reducao_a_zero(conexao):
-    """A tabela declara no nome e nesta CHECK que trata só de redução a ZERO.
-    O Anexo IV (60%, art. 131) tem outra forma de cálculo e não entra aqui por
-    ser "NCM também" (Decisão 3)."""
-    with pytest.raises(psycopg.errors.CheckViolation):
+def test_fk_recusa_anexo_ausente_do_catalogo(conexao):
+    """Desde a migração 009 o `anexo_conhecido` (CHECK fixa) virou uma FK para
+    `anexos_reducao_catalogo` — a tabela deixou de tratar só redução a zero
+    (o Anexo IV, 60%, é uma linha legítima aqui agora), mas ainda não aceita
+    um Anexo que a lei não institui. 'XX' não existe no catálogo."""
+    with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with conexao.cursor() as cur:
             cur.execute(
                 "INSERT INTO anexos_reducao "
-                "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
-                "VALUES ('IV', 4, 1, 'inventado', 'LCP 214/2025, Anexo IV, item 1')"
+                "(anexo, item, descricao, dispositivo_legal_ref) "
+                "VALUES ('XX', 1, 'inventado', 'LCP 214/2025, Anexo XX, item 1')"
             )
     conexao.rollback()
 
 
-def test_check_recusa_ordinal_que_discorda_do_rotulo(conexao):
-    """O ordinal mora ao lado do rótulo justamente para não poder divergir: com
-    um mapa em Python, o dia em que só um for atualizado produz uma ordem de
-    desempate silenciosamente errada."""
+def test_check_do_catalogo_recusa_ordinal_ou_percentual_que_discorda_do_rotulo(conexao):
+    """O ordinal e o percentual moram ao lado do rótulo do Anexo justamente
+    para não poderem divergir: com um mapa em Python, o dia em que só um for
+    atualizado produz uma ordem de desempate — ou uma alíquota — silenciosamente
+    errada. Desde a migração 009 essa garantia vive em
+    `anexos_reducao_catalogo`, não mais em `anexos_reducao` (que não tem mais
+    `anexo_ordem`)."""
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao "
-                "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
-                "VALUES ('XV', 13, 99, 'inventado', "
-                "'LCP 214/2025, art. 148, Anexo XV, item 99')"
+                "INSERT INTO anexos_reducao_catalogo "
+                "(anexo, anexo_ordem, percentual_reducao, assunto, artigo_ref) "
+                "VALUES ('XV', 13, 1.0, 'inventado', 'LCP 214/2025, art. 148')"
             )
     conexao.rollback()
 
@@ -320,8 +336,8 @@ def test_check_recusa_citacao_legal_que_nao_bate_com_a_chave(conexao):
         with conexao.cursor() as cur:
             cur.execute(
                 "INSERT INTO anexos_reducao "
-                "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
-                "VALUES ('XII', 12, 44, 'inventado', "
+                "(anexo, item, descricao, dispositivo_legal_ref) "
+                "VALUES ('XII', 44, 'inventado', "
                 "'LCP 214/2025, art. 144, Anexo XII, item 43')"
             )
     conexao.rollback()
@@ -334,8 +350,8 @@ def test_check_recusa_citacao_que_ignora_o_sub_item(conexao):
         with conexao.cursor() as cur:
             cur.execute(
                 "INSERT INTO anexos_reducao "
-                "(anexo, anexo_ordem, item, sub_item, descricao, dispositivo_legal_ref) "
-                "VALUES ('XIII', 13, 2, 3, 'inventado', "
+                "(anexo, item, sub_item, descricao, dispositivo_legal_ref) "
+                "VALUES ('XIII', 2, 3, 'inventado', "
                 "'LCP 214/2025, art. 145, Anexo XIII, item 2')"
             )
     conexao.rollback()

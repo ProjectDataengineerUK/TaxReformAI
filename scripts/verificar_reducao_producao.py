@@ -177,9 +177,12 @@ def main() -> None:
                 "SELECT excecao, count(*) FROM anexos_reducao_ncm GROUP BY excecao"
             )
             contagens = dict(cur.fetchall())
+            # `anexo_ordem` saiu de `anexos_reducao` na migração 009 — vive só
+            # no catálogo agora (Decisão 3 do DESIGN: uma verdade, um lugar).
             cur.execute(
-                "SELECT anexo, count(*) FROM anexos_reducao "
-                "GROUP BY anexo ORDER BY min(anexo_ordem)"
+                "SELECT r.anexo, count(*) FROM anexos_reducao r "
+                "JOIN anexos_reducao_catalogo c ON c.anexo = r.anexo "
+                "GROUP BY r.anexo ORDER BY min(c.anexo_ordem)"
             )
             por_anexo = cur.fetchall()
 
