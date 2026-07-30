@@ -1,11 +1,11 @@
 """Canonização e hierarquia de códigos NCM/SH.
 
-Vive aqui, e não dentro de `api/ipi.py` ou `api/reducao_zero.py`, porque as duas
+Vive aqui, e não dentro de `api/ipi.py` ou `api/reducao.py`, porque as duas
 features precisam da MESMA noção de "NCM válido". Duas definições fariam o mesmo
 item aparecer resolvido para um tributo e "não reconhecido" para outro na mesma
 resposta — bug indiagnosticável pelo cliente (ver Decisão 10).
 
-Este módulo não conhece IPI nem os Anexos de redução a zero: é vocabulário do
+Este módulo não conhece IPI nem os Anexos de redução: é vocabulário do
 domínio (a NCM/SH), não de feature.
 """
 

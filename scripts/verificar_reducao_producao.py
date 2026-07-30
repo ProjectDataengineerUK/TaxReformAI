@@ -1,12 +1,12 @@
-"""Prova os 4 Anexos de redução a zero contra o Cloud SQL real, com o papel de
-RUNTIME.
+"""Prova os 10 Anexos de redução (4 a zero + 6 percentuais) contra o Cloud SQL
+real, com o papel de RUNTIME.
 
 Roda só via `migrar_banco.yml` (guarda MIGRAR), nunca local. O ponto é o papel:
-o seed entra como `taxreformai_admin` (as migrações 005/007/008), e o GRANT para
-`taxreformai_app` nunca é exercitado por nenhum SELECT. Pela degradação
-conservadora, um grant faltando NÃO gera erro em runtime — gera
+o seed entra como `taxreformai_admin` (as migrações 005/007/008/009/010), e o
+GRANT para `taxreformai_app` nunca é exercitado por nenhum SELECT. Pela
+degradação conservadora, um grant faltando NÃO gera erro em runtime — gera
 CONSULTA_INDISPONIVEL silencioso e a alíquota geral da fase, que é EXATAMENTE a
-resposta de antes desta feature. É o modo de falha mais perigoso possível: a
+resposta de antes da feature. É o modo de falha mais perigoso possível: a
 feature "funciona" (200, verde) sem fazer nada. Este script é o único lugar onde
 isso falha ruidosamente.
 
@@ -14,78 +14,125 @@ Conecta com `DATABASE_URL_APP` (papel `taxreformai_app`, privilégio mínimo), n
 com a URL do admin: usar a credencial administrativa aqui provaria que o DADO
 existe, que já se sabe, e não que a API CONSEGUE lê-lo, que é a pergunta.
 
-São 7 casos — 3 herdados do Anexo I, que provam a NÃO-REGRESSÃO, e 4 novos, um
-para cada mecanismo que esta feature introduziu e que pode falhar sozinho sem
-afetar o Anexo I: Anexo novo com sub-item, desempate de 3 vias, exceção operante
-fora do Anexo I e o prefixo de 2 dígitos (Capítulo 6).
+Casos: os 7 já herdados da feature anterior (Anexos I/XII/XIII/XV, prova de
+NÃO-REGRESSÃO) mais os novos desta feature — a precedência normativa Anexo
+I/XV sobre o Anexo VII (AT-002/AT-003), o desempate de especificidade com
+`comprador_tipo` (AT-010/AT-010b) e o prefixo multi-capítulo (AT-007).
 
-Sai com código 1 se: as contagens não forem 60/127/24; qualquer um dos 7 casos
-resolver diferente do esperado; ou o SELECT for negado por permissão.
+Sai com código 1 se: as contagens não forem 321/508/32; qualquer caso resolver
+diferente do esperado; ou o SELECT for negado por permissão.
 """
 
 import os
 import sys
+from decimal import Decimal
 
 import psycopg
 
 from api.ncm import prefixos_ncm
-from api.reducao_zero import ConsultaReducaoZero, SituacaoReducaoZero, resolver_item
-from db.repositorio import buscar_reducao_zero_por_prefixo
+from api.reducao import ConsultaReducao, SituacaoReducao, resolver_item
+from db.repositorio import buscar_reducao_por_prefixo
 
-ITENS_ESPERADOS = 60
-INCLUSOES_ESPERADAS = 127
-EXCECOES_ESPERADAS = 24
+ITENS_ESPERADOS = 321
+INCLUSOES_ESPERADAS = 508
+EXCECOES_ESPERADAS = 32
 
 # (código, situação, Anexo, item, motivo pelo qual este caso está na lista)
 CASOS = [
     (
         "04051000",
-        SituacaoReducaoZero.APLICADA,
+        SituacaoReducao.APLICADA,
         "I",
         "5",
         "manteiga — não-regressão do Anexo I (correspondência exata)",
     ),
     (
         "02074300",
-        SituacaoReducaoZero.EXCLUIDA_EXPRESSAMENTE,
+        SituacaoReducao.EXCLUIDA_EXPRESSAMENTE,
         "I",
         "19",
         "foie gras — não-regressão da exceção do Anexo I",
     ),
     (
         "09012100",
-        SituacaoReducaoZero.APLICADA,
+        SituacaoReducao.APLICADA,
         "I",
         "8",
         "café — não-regressão do prefixo de 4 dígitos (posição 09.01)",
     ),
     (
         "87131000",
-        SituacaoReducaoZero.APLICADA,
+        SituacaoReducao.APLICADA,
         "XIII",
         "2.1",
         "cadeira de rodas — Anexo NOVO, com sub-item e descrição de contexto",
     ),
     (
         "90181980",
-        SituacaoReducaoZero.APLICADA,
+        SituacaoReducao.APLICADA,
         "XII",
         "1.2",
         "eletroencefalógrafo — desempate de 3 vias (itens 1.2, 1.3 e 14)",
     ),
     (
         "90213991",
-        SituacaoReducaoZero.EXCLUIDA_EXPRESSAMENTE,
+        SituacaoReducao.EXCLUIDA_EXPRESSAMENTE,
         "XII",
         "5",
         "prótese dentária — exceção operante FORA do Anexo I",
     ),
     (
         "06031100",
-        SituacaoReducaoZero.APLICADA,
+        SituacaoReducao.APLICADA,
         "XV",
         "4",
         "flores — PREFIXO DE 2 DÍGITOS (Capítulo 6), o caso que pode falhar sozinho",
+    ),
+    (
+        "34011190",
+        SituacaoReducao.APLICADA,
+        "VIII",
+        "1",
+        "sabão de toucador — AT-001, primeiro caso de 60% (não zero)",
+    ),
+    (
+        "10063021",
+        SituacaoReducao.APLICADA,
+        "I",
+        "1",
+        "arroz — AT-002, precedência normativa: Anexo I (zero) vence o Anexo "
+        "VII/15 (60%) para o mesmo NCM, exatamente como a lei escreve",
+    ),
+    (
+        "08031000",
+        SituacaoReducao.APLICADA,
+        "XV",
+        "3",
+        "banana — AT-003, a remissão dupla do item 14 do Anexo VII cede ao "
+        "Anexo XV, não só ao Anexo I",
+    ),
+    (
+        "87089910",
+        SituacaoReducao.APLICADA,
+        "V",
+        "1.1",
+        "comando de embreagem manual — AT-006, sub-item do Anexo V com "
+        "condição de comprador disponível e não informada",
+    ),
+    (
+        "11090000",
+        SituacaoReducao.APLICADA,
+        "IX",
+        "19",
+        "glúten de trigo — AT-007, item que cita 3 capítulos (10, 11 e 12) "
+        "ao mesmo tempo",
+    ),
+    (
+        "22030000",
+        SituacaoReducao.FORA_DO_ANEXO,
+        None,
+        None,
+        "cerveja — AT-013, fora de todos os 10 Anexos, alíquota geral",
     ),
 ]
 
@@ -95,12 +142,12 @@ def _falhar(mensagem: str) -> None:
     sys.exit(1)
 
 
-def _resolver(conexao, codigo: str):
+def _resolver(conexao, codigo: str, comprador_tipo: str | None = None):
     """O MESMO caminho de /v1/tax/simulate — lookup em lote e resolução pura —
     não um SELECT ad-hoc parecido. Verificar um caminho diferente do de produção
     deixaria justamente o caminho de produção por verificar."""
-    linhas = buscar_reducao_zero_por_prefixo(conexao, prefixos_ncm(codigo))
-    return resolver_item("MERCADORIA", codigo, ConsultaReducaoZero(True, linhas))
+    linhas = buscar_reducao_por_prefixo(conexao, prefixos_ncm(codigo))
+    return resolver_item("MERCADORIA", codigo, ConsultaReducao(True, linhas), comprador_tipo)
 
 
 def main() -> None:
@@ -124,14 +171,14 @@ def main() -> None:
             )
 
         with conexao.cursor() as cur:
-            cur.execute("SELECT count(*) FROM anexos_reducao_zero")
+            cur.execute("SELECT count(*) FROM anexos_reducao")
             itens = cur.fetchone()[0]
             cur.execute(
-                "SELECT excecao, count(*) FROM anexos_reducao_zero_ncm GROUP BY excecao"
+                "SELECT excecao, count(*) FROM anexos_reducao_ncm GROUP BY excecao"
             )
             contagens = dict(cur.fetchall())
             cur.execute(
-                "SELECT anexo, count(*) FROM anexos_reducao_zero "
+                "SELECT anexo, count(*) FROM anexos_reducao "
                 "GROUP BY anexo ORDER BY min(anexo_ordem)"
             )
             por_anexo = cur.fetchall()
@@ -147,8 +194,8 @@ def main() -> None:
                 f"seed incompleto para o papel de runtime: {itens} itens, "
                 f"{inclusoes} inclusões, {excecoes} exceções — esperado "
                 f"{ITENS_ESPERADOS}/{INCLUSOES_ESPERADAS}/{EXCECOES_ESPERADAS}. "
-                f"Por Anexo: {por_anexo}. Ou as migrações 007/008 não foram "
-                "aplicadas, ou algum INSERT foi truncado."
+                f"Por Anexo: {por_anexo}. Ou as migrações 007/008/009/010 não "
+                "foram aplicadas, ou algum INSERT foi truncado."
             )
 
         for codigo, situacao, anexo, item, motivo in CASOS:
@@ -196,12 +243,36 @@ def main() -> None:
                 "sincronia, todo o resto continua verde."
             )
 
+        # AT-010/AT-010b: o mesmo NCM, com e sem `comprador_tipo` — prova que a
+        # condição de comprador dos Anexos IV/V/VI é lida do catálogo, não
+        # hardcoded, e que o desempate prefere o zero quando ele se aplica.
+        sem_comprador = _resolver(conexao, "39269030")
+        if sem_comprador.percentual_reducao != Decimal("0.6"):
+            _falhar(
+                f"39269030 sem comprador_tipo resolveu percentual_reducao="
+                f"{sem_comprador.percentual_reducao!r}, esperado 0.6 (60%)."
+            )
+        if not sem_comprador.zero_por_comprador_disponivel:
+            _falhar(
+                "39269030 (Anexo IV) veio com zero_por_comprador_disponivel=False — "
+                "a condição do art. 144, II não foi carregada no catálogo."
+            )
+
+        com_comprador = _resolver(conexao, "39269030", comprador_tipo="ORGAO_PUBLICO")
+        if com_comprador.percentual_reducao != 1:
+            _falhar(
+                f"39269030 COM comprador_tipo=ORGAO_PUBLICO resolveu percentual_reducao="
+                f"{com_comprador.percentual_reducao!r}, esperado 1 (zero) — a condição "
+                "de comprador não está sendo aplicada no desempate."
+            )
+
         print(
-            "REDUÇÃO A ZERO VERIFICADA CONTRA O CLOUD SQL REAL: o papel de runtime "
-            f"lê os 4 Anexos ({itens} itens, {inclusoes} inclusões, {excecoes} "
-            f"exceções; por Anexo: {por_anexo}). Os 7 casos resolveram como o "
-            "DESIGN previu, incluindo o sub-item do Anexo XIII, o desempate triplo "
-            "do Anexo XII e o Capítulo 6 do Anexo XV."
+            "REDUÇÃO VERIFICADA CONTRA O CLOUD SQL REAL: o papel de runtime lê "
+            f"os 10 Anexos ({itens} itens, {inclusoes} inclusões, {excecoes} "
+            f"exceções; por Anexo: {por_anexo}). Os {len(CASOS)} casos resolveram "
+            "como o DESIGN previu, incluindo a precedência normativa Anexo I/XV "
+            "sobre o Anexo VII, o multi-capítulo do Anexo IX e a condição de "
+            "comprador dos Anexos IV/V/VI."
         )
     finally:
         conexao.close()
@@ -215,7 +286,7 @@ if __name__ == "__main__":
     except Exception as exc:  # noqa: BLE001 — borda de CLI, qualquer falha vira exit 1 com mensagem
         print(f"FALHA: {exc}", file=sys.stderr)
         print(
-            "Se for 'permission denied for table anexos_reducao_zero', o GRANT "
+            "Se for 'permission denied for table anexos_reducao', o GRANT "
             "SELECT da migração 007 não chegou ao papel taxreformai_app. Se for "
             "'relation does not exist', a migração 007 (que RENOMEIA as tabelas do "
             "Anexo I) não foi aplicada.",

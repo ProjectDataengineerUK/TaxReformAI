@@ -259,8 +259,8 @@ jobs:
             exit 1
           fi
 
-          SITUACAO=$(jq -r '.itens_detalhados[0].reducao_zero.situacao' /tmp/sim_cesta.json)
-          DISPENSADO=$(jq -r '.reducao_zero.total_cbs_dispensado' /tmp/sim_cesta.json)
+          SITUACAO=$(jq -r '.itens_detalhados[0].reducao.situacao' /tmp/sim_cesta.json)
+          DISPENSADO=$(jq -r '.reducao.total_cbs_dispensado' /tmp/sim_cesta.json)
           CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_cesta.json)
           if [ "$DISPENSADO" = "null" ] || [ "$CBS_PCT" != "0" ]; then
             echo "FALHA: manteiga (0405.10.00, item 5 do Anexo I) não recebeu alíquota zero."
@@ -294,10 +294,10 @@ jobs:
             exit 1
           fi
 
-          SITUACAO=$(jq -r '.itens_detalhados[0].reducao_zero.situacao' /tmp/sim_capitulo.json)
-          ANEXO=$(jq -r '.itens_detalhados[0].reducao_zero.anexo' /tmp/sim_capitulo.json)
-          ITEM=$(jq -r '.itens_detalhados[0].reducao_zero.item' /tmp/sim_capitulo.json)
-          DISPENSADO=$(jq -r '.reducao_zero.total_cbs_dispensado' /tmp/sim_capitulo.json)
+          SITUACAO=$(jq -r '.itens_detalhados[0].reducao.situacao' /tmp/sim_capitulo.json)
+          ANEXO=$(jq -r '.itens_detalhados[0].reducao.anexo' /tmp/sim_capitulo.json)
+          ITEM=$(jq -r '.itens_detalhados[0].reducao.item' /tmp/sim_capitulo.json)
+          DISPENSADO=$(jq -r '.reducao.total_cbs_dispensado' /tmp/sim_capitulo.json)
           CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_capitulo.json)
           if [ "$DISPENSADO" = "null" ] || [ "$CBS_PCT" != "0" ]; then
             echo "FALHA: flores (06031100, Capítulo 6 = item 4 do Anexo XV) não receberam alíquota zero."
@@ -307,6 +307,38 @@ jobs:
             exit 1
           fi
           echo "OK capítulo 6 (Anexo ${ANEXO}, item ${ITEM}, cbs dispensado=${DISPENSADO})"
+
+          # E2E da redução PERCENTUAL (60%) — Anexo VIII, item 1, art. 136
+          # (sabão de toucador). É o mecanismo mais novo desta feature
+          # (`aplicar_reducao_percentual`, nunca exercitado em produção antes
+          # dela): 0,9% de CBS na fase de teste de 2026, reduzido em 60%,
+          # sobra 0,36% — se a fração ficar sobre o valor já arredondado em vez
+          # da alíquota, o número diverge por 1 centavo sem sintoma nenhum.
+          #
+          # Quarta chamada, payload próprio, mesmo motivo das anteriores: não
+          # acoplar esta asserção a nenhum outro tributo/Anexo já verificado.
+          HTTP=$(curl -sS -o /tmp/sim_percentual.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-PERCENTUAL\",\"ncm\":\"34011190\",\"quantidade\":1,
+                             \"valor_unitario\":\"1000.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"RJ\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate (redução percentual) devolveu $HTTP (esperado 200)."
+            cat /tmp/sim_percentual.json
+            exit 1
+          fi
+
+          CBS_PCT=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_percentual.json)
+          PERCENTUAL=$(jq -r '.itens_detalhados[0].reducao.percentual_reducao' /tmp/sim_percentual.json)
+          if [ "$CBS_PCT" != "0.36" ]; then
+            echo "FALHA: sabão de toucador (34011190, item 1 do Anexo VIII) não recebeu 60% de redução."
+            echo "cbs_percentual=${CBS_PCT} percentual_reducao=${PERCENTUAL} (esperado cbs_percentual=0.36)"
+            echo "CONSULTA_INDISPONIVEL => migrações 009/010 não aplicadas ou GRANT ausente no catálogo;"
+            echo "cbs_percentual=0.9 => aplicar_reducao_percentual não está reduzindo a alíquota."
+            exit 1
+          fi
+          echo "OK redução percentual (Anexo VIII, item 1, cbs_percentual=${CBS_PCT}, percentual_reducao=${PERCENTUAL})"
 
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header

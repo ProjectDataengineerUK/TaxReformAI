@@ -33,8 +33,8 @@ on:
         options:
           - "sim"
           - "nao"
-      verificar_reducao_zero:
-        description: "Provar que o papel de RUNTIME lê os 4 Anexos de alíquota zero (I, XII, XIII, XV), incluindo o prefixo de 2 dígitos e o desempate de 3 vias"
+      verificar_reducao:
+        description: "Provar que o papel de RUNTIME lê os 10 Anexos de redução (4 a zero + 6 percentuais), incluindo a precedência normativa e a condição de comprador"
         required: true
         default: "sim"
         type: choice
@@ -156,16 +156,17 @@ jobs:
       # passo é o único lugar em que a diferença entre "funciona" e "não faz
       # nada" aparece.
       #
-      # Depois da migração 007 (que RENOMEIA as tabelas do Anexo I) e da 008
-      # (Anexos XII/XIII/XV), são 7 casos: 3 de não-regressão do Anexo I e 4 dos
-      # mecanismos novos, que podem falhar sozinhos sem afetar o Anexo I —
-      # sub-item, desempate triplo, exceção operante e o prefixo de 2 dígitos.
-      - name: Verificar leitura dos Anexos de alíquota zero pelo papel de runtime
-        if: ${{ inputs.verificar_reducao_zero == 'sim' }}
+      # Depois das migrações 007/008 (Anexo I + XII/XIII/XV) e 009/010 (catálogo
+      # + Anexos IV/V/VI/VII/VIII/IX), são 14 casos: 7 de não-regressão dos
+      # Anexos zero e 7 dos mecanismos novos — precedência normativa (Anexo I/XV
+      # sobre o VII), multi-capítulo e a condição de comprador dos Anexos
+      # IV/V/VI, que podem falhar sozinhos sem afetar os Anexos zero.
+      - name: Verificar leitura dos Anexos de redução pelo papel de runtime
+        if: ${{ inputs.verificar_reducao == 'sim' }}
         run: |
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
-          python scripts/verificar_reducao_zero_producao.py
+          python scripts/verificar_reducao_producao.py
 
       - name: Encerrar o proxy
         if: always()

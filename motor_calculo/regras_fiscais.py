@@ -35,12 +35,18 @@ class RegraFiscal:
     compensavel: bool = False
     fonte_legal_compensacao: str | None = None
 
-    # Por que uma redução a zero (Anexos I/art. 125, XII/art. 144, XIII/art. 145
-    # e XV/art. 148) vale numa fase cuja alíquota já é 0,9%/0,1%. Conhecimento de
-    # FASE, então mora com as demais citações por fase: se a frase morasse em
-    # `api/reducao_zero.py`, a resposta citaria a regra de 2026 numa simulação de
-    # 2027 tão logo aquela fase deixe de ser recusada — erro de citação que
-    # ninguém veria (Decisão 5).
+    # Por que uma redução vale numa fase cuja alíquota já é 0,9%/0,1% — tanto a
+    # redução A ZERO (Anexos I/art. 125, XII/art. 144, I, XIII/art. 145, I e
+    # XV/art. 148) quanto a de 60% (IV/art. 131, V/art. 132, VI/art. 133 §1º,
+    # VII/art. 135, VIII/art. 136 e IX/art. 138). O texto semeado em
+    # `tabela_aliquotas.py` NÃO muda com a entrada dos Anexos de 60%: ele já
+    # cita o art. 348, III, "a", que é genérico para "operações sujeitas a
+    # alíquota reduzida" e não distingue os dois mecanismos.
+    #
+    # Conhecimento de FASE, então mora com as demais citações por fase: se a
+    # frase morasse em `api/reducao.py`, a resposta citaria a regra de 2026 numa
+    # simulação de 2027 tão logo aquela fase deixe de ser recusada — erro de
+    # citação que ninguém veria (Decisão 5).
     fonte_legal_reducoes: str | None = None
 
     def tributos_indisponiveis(self) -> list[str]:

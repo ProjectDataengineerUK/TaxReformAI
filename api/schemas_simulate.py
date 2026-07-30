@@ -1,10 +1,29 @@
 from decimal import Decimal
+from enum import StrEnum
 from typing import Literal
 
 from pydantic import BaseModel, Field
 
 from api.ipi import SituacaoIpi
 from motor_calculo.regime_atual import RegimeApuracao
+
+
+class CompradorTipo(StrEnum):
+    """Quem ADQUIRE, quando isso muda a alíquota.
+
+    Só os dois tipos que a lei nomeia (arts. 144, II; 145, II; 146, § 1º) — não
+    é uma taxonomia de clientes. Enum fechado, e não texto livre como
+    `operacao_tipo`, porque este campo MUDA O NÚMERO: "orgao publico", "ÓRGÃO
+    PÚBLICO" e "prefeitura" precisariam todos significar a mesma coisa — ou,
+    pior, silenciosamente não significar nada.
+
+    Informá-lo é DECLARATÓRIO: a simulação não verifica imunidade nem validade
+    de CEBAS, e diz isso em `fonte_legal`. Mesma natureza de `bem_importado` e
+    `regime_apuracao`.
+    """
+
+    ORGAO_PUBLICO = "ORGAO_PUBLICO"  # arts. 144 II "a" / 145 II "a" / 146 §1º I
+    ENTIDADE_CEBAS_SUS = "ENTIDADE_CEBAS_SUS"  # arts. 144 II "b" / 145 II "b" / 146 §1º II
 
 
 class ItemSimulacao(BaseModel):
@@ -39,6 +58,17 @@ class PayloadSimulacao(BaseModel):
     # reforma. Sem este campo, o PIS/COFINS simplesmente não é calculado, e o
     # escopo da resposta diz por quê.
     regime_apuracao: RegimeApuracao | None = None
+    # Mesmo contrato de `regime_apuracao`: None significa "não informado", nunca
+    # um default. Vive no nível da OPERAÇÃO, não do item — não existe nota em
+    # que dois itens tenham compradores diferentes, e por item seriam 100 cópias
+    # do mesmo valor por payload.
+    #
+    # Efeito, e só ele: para um item cujo Anexo vencedor tenha condição de
+    # comprador (IV, V, VI), o percentual aplicado passa de 60% para 100% e a
+    # resposta cita OS DOIS dispositivos. Ausente, aplica-se 60% e a resposta
+    # declara, no próprio item, que a alíquota seria zero para comprador
+    # qualificado (`zero_por_comprador_disponivel`).
+    comprador_tipo: CompradorTipo | None = None
 
 
 class AliquotasAplicadas(BaseModel):
@@ -49,16 +79,21 @@ class AliquotasAplicadas(BaseModel):
 
 class ItemCorrespondente(BaseModel):
     """Um item que também casou com o código. Qualificado pelo Anexo porque
-    "item 5" sozinho é ambíguo entre 4 Anexos (todos têm um item 5)."""
+    "item 5" sozinho é ambíguo entre 10 Anexos (todos têm um item 5)."""
 
     anexo: str
     item: str
 
 
-class ReducaoZeroItem(BaseModel):
-    """Situação do item frente aos 4 Anexos de ALÍQUOTA ZERO da LCP 214/2025:
-    I (art. 125, cesta básica), XII (art. 144, dispositivos médicos), XIII
-    (art. 145, acessibilidade) e XV (art. 148, hortícolas/frutas/ovos).
+class ReducaoItem(BaseModel):
+    """Situação do item frente aos 10 Anexos de redução por NCM da LCP 214/2025.
+
+    Redução a ZERO: I (art. 125, cesta básica), XII (art. 144, I, dispositivos
+    médicos), XIII (art. 145, I, acessibilidade) e XV (art. 148,
+    hortícolas/frutas/ovos). Redução de 60%: IV (art. 131, dispositivos
+    médicos), V (art. 132, acessibilidade), VI (art. 133, § 1º, nutrição
+    enteral/parenteral), VII (art. 135, alimentos), VIII (art. 136,
+    higiene/limpeza) e IX (art. 138, insumos agropecuários).
 
     SEMPRE presente, inclusive quando não se aplica: seis coisas diferentes
     colapsariam num booleano `false` — fora dos Anexos, EXPRESSAMENTE excluído
@@ -66,29 +101,48 @@ class ReducaoZeroItem(BaseModel):
     (Decisão 7 do Anexo I).
 
     `EXCLUIDA_EXPRESSAMENTE` é a informação mais valiosa desta feature: o produto
-    está na posição citada pelo item, mas o próprio Anexo o retira (foie gras no
-    I/19, próteses dentárias do XII/5, cogumelos e trufas no XV/2). NÃO é o mesmo
+    está na posição citada pelo item, mas o próprio item o retira (foie gras no
+    I/19, próteses dentárias do XII/5, `0306.11` no VII/1). NÃO é o mesmo
     que `FORA_DO_ANEXO`.
 
-    Sucede o bloco `cesta_basica`, renomeado porque o mesmo bloco agora responde
-    por um tomógrafo e por uma cadeira de rodas (Decisão 8).
+    Sucede o bloco `reducao_zero`, renomeado porque o mesmo bloco agora responde
+    por uma cadeira de rodas a zero E por um sabão de toucador a 60% —
+    `"reducao_zero": {"situacao": "APLICADA"}` num item cuja CBS não é zero é
+    falso (Decisão 9).
     """
 
     situacao: str
-    anexo: str | None = None  # "I" | "XII" | "XIII" | "XV"
+    anexo: str | None = None  # "I" | "IV" | ... | "XV"
     item: str | None = None  # grafia do DOU: "5", "1.2"
+    # 100.00 = alíquota reduzida a zero; 60.00 = restam 40% da alíquota da fase.
+    percentual_reducao: Decimal | None = None
     # "LCP 214/2025, art. 144, Anexo XII, item 1.2"
     dispositivo_legal_ref: str | None = None
+    # Preenchido em TODO item dos Anexos IV/V/VI: com `comprador_tipo` ausente é
+    # o aviso de que a alíquota real seria zero; com ele presente é a
+    # fundamentação do zero aplicado (arts. 144, II; 145, II; 146, § 2º).
+    dispositivo_legal_comprador: str | None = None
+    # True quando 60% foi aplicado MAS a alíquota seria zero se o comprador
+    # fosse órgão público/entidade CEBAS e o payload tivesse informado.
+    zero_por_comprador_disponivel: bool = False
     descricao: str | None = None  # texto literal do item no DOU
     # Descrição do item-pai, quando `item` é sub-item: sem ela, "Sem mecanismo
     # de propulsão" (XIII/2.1) seria a fundamentação inteira (Decisão 7).
     descricao_contexto: str | None = None
     ncm_correspondido: str | None = None  # grafia literal que casou: "9021.3", "06"
-    tipo_correspondencia: str | None = None  # EXATO | PREFIXO | EXCECAO
-    # I/15 e I/25, I/4 e I/26, XII/1.2, XII/1.3 e XII/14 citam códigos
-    # sobrepostos; `item` é o mais específico, esta lista mostra todos, para o
-    # auditor não perguntar por que não o outro.
+    # EXATO | PREFIXO | CAPITULO | EXCECAO — `CAPITULO` (prefixo de 2 dígitos) é
+    # a mais ampla que existe e a ÚNICA cujo erro é tributo a MENOS: concede a
+    # redução ao capítulo inteiro da NCM enquanto o texto do item restringe
+    # (Capítulo 25 do Anexo IX/3 inclui cimento, mármore e gesso). Existe para
+    # que o cliente possa filtrar "revisar manualmente" por máquina (Decisão 7).
+    tipo_correspondencia: str | None = None
+    # I/15 e I/25, I/4 e I/26, XII/1.2+1.3+14, 9 itens do Anexo IV em
+    # `9018.90.99`; `item` é o vencedor do desempate, esta lista mostra todos,
+    # para o auditor não perguntar por que não o outro. Nunca truncada.
     itens_correspondentes: list[ItemCorrespondente] = []
+    # Itens que EXCLUEM expressamente este código, mesmo quando outro item o
+    # inclui: o cogumelo é retirado do XV/2 e incluído pelo VII/14 (Decisão 8).
+    itens_excluidos: list[ItemCorrespondente] = []
     # O que teria sido cobrado sem a redução — é assim que o controller demonstra
     # o benefício fiscal, que é o segundo pain point do DEFINE.
     cbs_percentual_sem_reducao: Decimal | None = None
@@ -96,8 +150,9 @@ class ReducaoZeroItem(BaseModel):
     valor_cbs_dispensado: Decimal | None = None
     valor_ibs_dispensado: Decimal | None = None
     # Por que a redução vale numa fase cuja alíquota é 0,9%/0,1% (Decisão 5 do
-    # Anexo I; os arts. 144/145/148 estão no Título IV, então o art. 348, III,
-    # "a" os alcança sem ressalva).
+    # Anexo I; os arts. 131-138 e 144/145/148 estão no Título IV, então o art.
+    # 348, III, "a" — "operações sujeitas a alíquota reduzida" — os alcança sem
+    # ressalva, tanto para zero quanto para 60%).
     fonte_legal_transicao: str | None = None
 
 
@@ -109,7 +164,7 @@ class ItemDetalhado(BaseModel):
     # Preenchido nos dois ramos do laço (mercadoria e serviço), nunca por
     # default do modelo — um default silencioso faria um item de mercadoria com
     # bug reportar "não se aplica".
-    reducao_zero: ReducaoZeroItem | None = None
+    reducao: ReducaoItem | None = None
 
 
 class ResumoFinanceiro(BaseModel):
@@ -161,11 +216,12 @@ class ItemNaoAvaliado(BaseModel):
     situacao: str  # NCM_NAO_RECONHECIDO | CONSULTA_INDISPONIVEL
 
 
-class ReducaoZeroResumo(BaseModel):
-    """Agregado dos 4 Anexos de alíquota zero no payload inteiro.
+class ReducaoResumo(BaseModel):
+    """Agregado dos 10 Anexos de redução por NCM no payload inteiro.
 
     Note que os totais são o que foi DISPENSADO (deixou de ser cobrado), não o
     que foi cobrado: `resumo_financeiro.total_cbs` já vem líquido das reduções.
+    Com 60%, o dispensado é a DIFERENÇA — o cliente continua devendo 40%.
     """
 
     consulta_disponivel: bool
@@ -173,9 +229,14 @@ class ReducaoZeroResumo(BaseModel):
     # feito — por isso segue preenchido mesmo em avaliação parcial. O nome
     # carrega o "aplicada" para não ser lido como "elegíveis".
     itens_com_reducao_aplicada: int = 0
-    # Quais Anexos de fato moveram o número neste payload — ["I", "XV"]. Ordem
-    # da lei, não alfabética do rótulo romano.
+    # Quais Anexos de fato moveram o número neste payload — ["I", "VII", "XV"].
+    # Ordem do CATÁLOGO (a da lei), não alfabética do rótulo romano.
     anexos_aplicados: list[str] = []
+    # Quantos itens tiveram a redução concedida por correspondência de CAPÍTULO
+    # (prefixo de 2 dígitos) — a única classe cujo erro é tributo a MENOS. Existe
+    # para o ERP conseguir programar "revisar manualmente estes" em vez de
+    # precisar ler um aviso em prosa (Decisão 7).
+    itens_por_capitulo: int = 0
     # `None` quando QUALQUER item de mercadoria ficou sem avaliação — nunca um
     # total parcial com cara de total (Decisão 9). `0.00` é resposta legítima:
     # payload inteiro fora dos Anexos.
@@ -183,15 +244,31 @@ class ReducaoZeroResumo(BaseModel):
     total_ibs_dispensado: Decimal | None = None
     itens_nao_avaliados: list[ItemNaoAvaliado] = []
     fonte_legal: str = (
-        "LCP 214/2025 — alíquotas do IBS e da CBS reduzidas a zero: art. 125 e "
-        "Anexo I (Cesta Básica Nacional de Alimentos), art. 144 e Anexo XII "
-        "(dispositivos médicos), art. 145 e Anexo XIII (dispositivos de "
-        "acessibilidade) e art. 148 e Anexo XV (produtos hortícolas, frutas e "
-        "ovos). A correspondência é feita por NCM/SH; vários itens impõem "
-        "condições adicionais em seu próprio texto (requisitos da Anvisa nos "
-        "Anexos XII e XIII, destinação e tipo de produto no Anexo XV, "
-        "conformidade com legislação específica no Anexo I) que esta simulação "
-        "não verifica."
+        "LCP 214/2025 — reduções de alíquota do IBS e da CBS por NCM/SH. "
+        "REDUZIDAS A ZERO: art. 125 e Anexo I (Cesta Básica Nacional de "
+        "Alimentos), art. 144, I e Anexo XII (dispositivos médicos), art. 145, "
+        "I e Anexo XIII (dispositivos de acessibilidade) e art. 148 e Anexo XV "
+        "(produtos hortícolas, frutas e ovos). REDUZIDAS EM 60%: art. 131 e "
+        "Anexo IV (dispositivos médicos), art. 132 e Anexo V (dispositivos de "
+        "acessibilidade), art. 133, § 1º e Anexo VI (composições para nutrição "
+        "enteral e parenteral), art. 135 e Anexo VII (alimentos destinados ao "
+        "consumo humano), art. 136 e Anexo VIII (produtos de higiene pessoal e "
+        "limpeza) e art. 138 e Anexo IX (insumos agropecuários e aquícolas). "
+        "A correspondência é feita por NCM/SH; vários itens impõem condições "
+        "adicionais em seu próprio texto (requisitos da Anvisa nos Anexos IV e "
+        "XII, norma de órgão competente nos V e XIII, compromisso CMED no VI, "
+        "registro no MAPA e conformidade com legislação específica no IX, "
+        "destinação e tipo de produto no XV, legislação específica no I) que "
+        "esta simulação NÃO verifica. Os itens 22 a 34 do Anexo IX NÃO são "
+        "resolvidos: os itens 22 a 33 têm chave NBS (vocabulário de serviço, "
+        "fora desta tabela) e o item 34 não cita chave nenhuma. "
+        "`comprador_tipo` é DECLARATÓRIO — a simulação não verifica imunidade "
+        "nem validade de CEBAS; ela aplica a redução a zero dos arts. 144, II, "
+        "145, II e 146, § 2º porque o cliente afirmou a qualidade do "
+        "adquirente. As listas dos Anexos IV, V, VI e IX são revisadas a cada "
+        "120 dias por ato conjunto do Ministério da Fazenda e do Comitê Gestor "
+        "do IBS (arts. 131, § 2º; 132, § 2º; 134; 138, § 10) e esta tabela não "
+        "tem dimensão temporal."
     )
 
 
@@ -269,4 +346,4 @@ class RespostaSimulacao(BaseModel):
     compensacao: Compensacao
     regime_vigente: RegimeVigenteResumo
     itens_regime_vigente: list[ItemRegimeVigente]
-    reducao_zero: ReducaoZeroResumo | None = None
+    reducao: ReducaoResumo | None = None

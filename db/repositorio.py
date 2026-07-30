@@ -42,8 +42,8 @@ class AliquotaIpi:
 
 
 def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
-    """Lookup em lote da TIPI. Sem RLS: como `anexos_reducao_zero`, é dado
-    legal público, igual para todo tenant.
+    """Lookup em lote da TIPI. Sem RLS: como `anexos_reducao`, é dado legal
+    público, igual para todo tenant.
 
     UMA query para N códigos — `= ANY(%s)` com uma lista Python é o idioma
     nativo do psycopg para lote e usa `idx_aliquotas_ipi_ncm`. Um laço de
@@ -80,8 +80,8 @@ def buscar_ipi_por_ncm(conexao, ncms: list[str]) -> dict[str, AliquotaIpi]:
 
 
 @dataclass(frozen=True)
-class PrefixoReducaoZero:
-    """Uma linha de `anexos_reducao_zero_ncm` já com o item resolvido pelo JOIN.
+class PrefixoReducao:
+    """Uma linha de `anexos_reducao_ncm` com o item e o Anexo já resolvidos.
 
     `excecao=True` significa que este prefixo EXCLUI a mercadoria do item — e
     exclui só DESTE item, nunca dos demais. A lei escreve a exclusão dentro do
@@ -90,18 +90,29 @@ class PrefixoReducaoZero:
     Anexo XV anulasse uma inclusão do Anexo XII sem que ninguém tivesse
     escrito isso.
 
-    `anexo_ordem` vem da coluna, não de um mapa romano→número em Python: com
-    dois lugares declarando a mesma verdade, o dia em que só um for atualizado
-    produz uma ordem de desempate silenciosamente errada (Decisão 3).
+    `anexo_ordem` e `percentual_reducao` vêm do CATÁLOGO (migração 009), não de
+    constantes em Python: com dois lugares declarando a mesma verdade, o dia em
+    que só um for atualizado produz ora uma ordem de desempate silenciosamente
+    errada, ora o percentual do Anexo vizinho.
+
+    `percentual_reducao` é a FRAÇÃO DA ALÍQUOTA REMOVIDA — 1.0000 para os
+    Anexos de redução a zero (I, XII, XIII, XV), 0.6000 para os de 60% (IV, V,
+    VI, VII, VIII, IX).
+
+    `zero_por_comprador_ref` é não-nulo só nos Anexos IV, V e VI, e é o que
+    permite ao runtime aplicar ZERO (não 60%) quando o payload informa
+    `comprador_tipo` — arts. 144, II; 145, II; 146, § 2º.
 
     `descricao_contexto` é a descrição do item-pai quando esta linha pertence a
     um sub-item — sem ela, a resposta citaria "Sem mecanismo de propulsão"
     (Anexo XIII, item 2.1) como fundamentação legal de uma cadeira de rodas
-    (Decisão 7).
+    (Decisão 7 da feature anterior).
     """
 
     anexo: str
     anexo_ordem: int
+    percentual_reducao: Decimal
+    zero_por_comprador_ref: str | None
     item: int
     sub_item: int
     prefixo: str
@@ -113,24 +124,27 @@ class PrefixoReducaoZero:
     dispositivo_legal_ref: str
 
 
-def buscar_reducao_zero_por_prefixo(
-    conexao, prefixos: list[str]
-) -> list[PrefixoReducaoZero]:
-    """Lookup em lote dos 4 Anexos de alíquota zero (I, XII, XIII e XV).
+def buscar_reducao_por_prefixo(conexao, prefixos: list[str]) -> list[PrefixoReducao]:
+    """Lookup em lote dos 10 Anexos de redução por NCM. Sem RLS: dado legal
+    público, igual para todo tenant.
 
-    Sem RLS: dado legal público, igual para todo tenant.
+    UMA query — e ela precisa ser uma só, não por economia: a resposta certa
+    depende de comparar linhas dos dois grupos entre si (117 pares de prefixo em
+    sobreposição entre os 4 Anexos de zero e os 6 de 60%, inclusive o MESMO
+    código de 8 dígitos). Duas consultas devolveriam duas listas que alguém
+    teria de reconciliar em Python, com a ordem de desempate declarada em dois
+    lugares.
 
-    UMA query para os prefixos de todos os itens do payload. Devolve tanto
-    inclusões quanto exceções — uma exceção só é relevante quando ela própria é
-    prefixo do código, então ela cai no mesmo `= ANY` e não precisa de segunda
-    consulta.
+    Devolve tanto inclusões quanto exceções — uma exceção só é relevante quando
+    ela própria é prefixo do código, então ela cai no mesmo `= ANY` e não
+    precisa de segunda consulta.
 
     O `= ANY(%s)` com lista Python é o mesmo idioma de `buscar_ipi_por_ncm`, e é
     o que a Decisão 2 do Anexo I preserva ao expandir o prefixo do lado do
     Python: a coluna fica do lado curto da igualdade, o índice continua valendo
     e nenhum trecho de SQL precisa saber o que conta como prefixo.
 
-    Propaga exceção de propósito: quem decide degradar é `api/reducao_zero.py`
+    Propaga exceção de propósito: quem decide degradar é `api/reducao.py`
     (mesma divisão da Decisão 6 do DESIGN de IPI_TIPI_MOTOR_CALCULO). Lista
     vazia de retorno significa "nenhum prefixo casou", nunca "falhou".
     """
@@ -140,13 +154,16 @@ def buscar_reducao_zero_por_prefixo(
     with conexao.cursor() as cur:
         cur.execute(
             """
-            SELECT i.anexo, i.anexo_ordem, p.item, p.sub_item, p.prefixo, p.excecao,
+            SELECT c.anexo, c.anexo_ordem, c.percentual_reducao,
+                   c.zero_por_comprador_ref,
+                   p.item, p.sub_item, p.prefixo, p.excecao,
                    p.texto_ncm, p.alinea, i.descricao, pai.descricao,
                    i.dispositivo_legal_ref
-            FROM anexos_reducao_zero_ncm p
-            JOIN anexos_reducao_zero i
+            FROM anexos_reducao_ncm p
+            JOIN anexos_reducao i
               ON i.anexo = p.anexo AND i.item = p.item AND i.sub_item = p.sub_item
-            LEFT JOIN anexos_reducao_zero pai
+            JOIN anexos_reducao_catalogo c ON c.anexo = i.anexo
+            LEFT JOIN anexos_reducao pai
               ON pai.anexo = i.anexo AND pai.item = i.item
              AND pai.sub_item = 0 AND i.sub_item > 0
             WHERE p.prefixo = ANY(%s)
@@ -155,7 +172,7 @@ def buscar_reducao_zero_por_prefixo(
         )
         # A ordem dos campos do SELECT é a ordem do dataclass — se um mudar, o
         # outro muda junto.
-        return [PrefixoReducaoZero(*linha) for linha in cur.fetchall()]
+        return [PrefixoReducao(*linha) for linha in cur.fetchall()]
 
 
 @contextmanager

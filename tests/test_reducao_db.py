@@ -15,7 +15,7 @@ import os
 
 import pytest
 
-from db.repositorio import buscar_reducao_zero_por_prefixo
+from db.repositorio import buscar_reducao_por_prefixo
 
 psycopg = pytest.importorskip("psycopg", reason="psycopg não instalado")
 
@@ -39,22 +39,28 @@ def conexao():
 # Seed — contagens de fechamento do DESIGN -----------------------------------
 
 
-def test_o_rename_da_migracao_007_apagou_os_nomes_antigos(conexao):
+def test_os_renames_das_migracoes_007_e_009_apagaram_os_nomes_antigos(conexao):
     """`ALTER TABLE ... RENAME` preserva dados, índices e privilégios — mas o
-    nome antigo tem de sumir, senão alguém escreveria numa cópia esquecida."""
+    nome antigo tem de sumir, senão alguém escreveria numa cópia esquecida.
+    Duas gerações de nome: `cesta_basica_anexo_i*` (007) e `anexos_reducao_zero*`
+    (009), nenhuma pode sobreviver ao lado da atual."""
     with conexao.cursor() as cur:
         cur.execute("SELECT to_regclass('public.cesta_basica_anexo_i')")
         assert cur.fetchone()[0] is None
         cur.execute("SELECT to_regclass('public.cesta_basica_anexo_i_ncm')")
         assert cur.fetchone()[0] is None
         cur.execute("SELECT to_regclass('public.anexos_reducao_zero')")
+        assert cur.fetchone()[0] is None
+        cur.execute("SELECT to_regclass('public.anexos_reducao_zero_ncm')")
+        assert cur.fetchone()[0] is None
+        cur.execute("SELECT to_regclass('public.anexos_reducao')")
         assert cur.fetchone()[0] is not None
 
 
 def test_seed_carregou_os_60_itens_dos_quatro_anexos(conexao):
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT anexo, count(*) FROM anexos_reducao_zero GROUP BY anexo ORDER BY anexo"
+            "SELECT anexo, count(*) FROM anexos_reducao GROUP BY anexo ORDER BY anexo"
         )
         contagens = dict(cur.fetchall())
 
@@ -66,7 +72,7 @@ def test_seed_carregou_os_151_prefixos_por_anexo(conexao):
     em toda constraint e falha aqui. Por Anexo, para que a falha diga onde."""
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT anexo, count(*) FROM anexos_reducao_zero_ncm "
+            "SELECT anexo, count(*) FROM anexos_reducao_ncm "
             "GROUP BY anexo ORDER BY anexo"
         )
         contagens = dict(cur.fetchall())
@@ -77,7 +83,7 @@ def test_seed_carregou_os_151_prefixos_por_anexo(conexao):
 def test_seed_carregou_127_inclusoes_e_24_excecoes(conexao):
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT excecao, count(*) FROM anexos_reducao_zero_ncm "
+            "SELECT excecao, count(*) FROM anexos_reducao_ncm "
             "GROUP BY excecao ORDER BY excecao"
         )
         contagens = dict(cur.fetchall())
@@ -90,7 +96,7 @@ def test_o_ordinal_de_cada_anexo_e_unico_e_numerico(conexao):
     desempate poder ordenar Anexos (Decisão 3)."""
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT anexo, anexo_ordem FROM anexos_reducao_zero ORDER BY anexo_ordem"
+            "SELECT DISTINCT anexo, anexo_ordem FROM anexos_reducao ORDER BY anexo_ordem"
         )
         pares = cur.fetchall()
 
@@ -102,7 +108,7 @@ def test_comprimentos_de_prefixo_presentes_sao_a_lista_da_ncm(conexao):
     Nenhum 3: a NCM/SH não tem esse nível."""
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT DISTINCT length(prefixo) FROM anexos_reducao_zero_ncm ORDER BY 1"
+            "SELECT DISTINCT length(prefixo) FROM anexos_reducao_ncm ORDER BY 1"
         )
         comprimentos = [linha[0] for linha in cur.fetchall()]
 
@@ -112,7 +118,7 @@ def test_comprimentos_de_prefixo_presentes_sao_a_lista_da_ncm(conexao):
 def test_o_unico_prefixo_de_dois_digitos_e_o_capitulo_6_do_anexo_xv(conexao):
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT anexo, item, prefixo, texto_ncm FROM anexos_reducao_zero_ncm "
+            "SELECT anexo, item, prefixo, texto_ncm FROM anexos_reducao_ncm "
             "WHERE length(prefixo) = 2"
         )
         linhas = cur.fetchall()
@@ -129,10 +135,10 @@ def test_toda_excecao_desce_de_uma_inclusao_do_mesmo_item(conexao):
     with conexao.cursor() as cur:
         cur.execute(
             """
-            SELECT e.anexo, e.item, e.sub_item, e.prefixo FROM anexos_reducao_zero_ncm e
+            SELECT e.anexo, e.item, e.sub_item, e.prefixo FROM anexos_reducao_ncm e
             WHERE e.excecao IS TRUE
               AND NOT EXISTS (
-                  SELECT 1 FROM anexos_reducao_zero_ncm i
+                  SELECT 1 FROM anexos_reducao_ncm i
                   WHERE i.anexo = e.anexo AND i.item = e.item AND i.sub_item = e.sub_item
                     AND i.excecao IS FALSE AND e.prefixo LIKE i.prefixo || '%'
               )
@@ -149,15 +155,15 @@ def test_a_assercao_de_excecao_orfa_de_fato_pega_uma_orfa(conexao):
     propósito, e a consulta precisa encontrá-la."""
     with conexao.cursor() as cur:
         cur.execute(
-            "INSERT INTO anexos_reducao_zero_ncm (anexo, item, sub_item, prefixo, "
+            "INSERT INTO anexos_reducao_ncm (anexo, item, sub_item, prefixo, "
             "excecao, texto_ncm) VALUES ('XII', 6, 0, '90229999', TRUE, '9022.99.99')"
         )
         cur.execute(
             """
-            SELECT e.anexo, e.item, e.prefixo FROM anexos_reducao_zero_ncm e
+            SELECT e.anexo, e.item, e.prefixo FROM anexos_reducao_ncm e
             WHERE e.excecao IS TRUE
               AND NOT EXISTS (
-                  SELECT 1 FROM anexos_reducao_zero_ncm i
+                  SELECT 1 FROM anexos_reducao_ncm i
                   WHERE i.anexo = e.anexo AND i.item = e.item AND i.sub_item = e.sub_item
                     AND i.excecao IS FALSE AND e.prefixo LIKE i.prefixo || '%'
               )
@@ -175,9 +181,9 @@ def test_so_os_dois_cabecalhos_conhecidos_nao_tem_linha_de_prefixo(conexao):
     with conexao.cursor() as cur:
         cur.execute(
             """
-            SELECT i.anexo, i.item, i.sub_item FROM anexos_reducao_zero i
+            SELECT i.anexo, i.item, i.sub_item FROM anexos_reducao i
             WHERE NOT EXISTS (
-                SELECT 1 FROM anexos_reducao_zero_ncm p
+                SELECT 1 FROM anexos_reducao_ncm p
                 WHERE p.anexo = i.anexo AND p.item = i.item AND p.sub_item = i.sub_item
             )
             ORDER BY i.anexo_ordem, i.item
@@ -192,16 +198,16 @@ def test_todo_sub_item_tem_o_cabecalho_que_lhe_da_sentido(conexao):
     with conexao.cursor() as cur:
         cur.execute(
             """
-            SELECT f.anexo, f.item, f.sub_item FROM anexos_reducao_zero f
+            SELECT f.anexo, f.item, f.sub_item FROM anexos_reducao f
             WHERE f.sub_item > 0 AND NOT EXISTS (
-                SELECT 1 FROM anexos_reducao_zero c
+                SELECT 1 FROM anexos_reducao c
                 WHERE c.anexo = f.anexo AND c.item = f.item AND c.sub_item = 0
             )
             """
         )
         assert cur.fetchall() == []
 
-        cur.execute("SELECT count(*) FROM anexos_reducao_zero WHERE sub_item > 0")
+        cur.execute("SELECT count(*) FROM anexos_reducao WHERE sub_item > 0")
         assert cur.fetchone()[0] == 5  # XII/1.1-1.3 e XIII/2.1-2.2
 
 
@@ -220,8 +226,8 @@ def test_nenhum_codigo_concreto_e_compartilhado_entre_anexos_diferentes(conexao)
         cur.execute(
             """
             SELECT a.anexo, a.prefixo, b.anexo, b.prefixo
-            FROM anexos_reducao_zero_ncm a
-            JOIN anexos_reducao_zero_ncm b
+            FROM anexos_reducao_ncm a
+            JOIN anexos_reducao_ncm b
               ON a.anexo < b.anexo
              AND (b.prefixo LIKE a.prefixo || '%' OR a.prefixo LIKE b.prefixo || '%')
             WHERE a.excecao IS FALSE AND b.excecao IS FALSE
@@ -242,7 +248,7 @@ def test_check_recusa_prefixo_que_nao_bate_com_a_grafia_do_dou(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero_ncm (anexo, item, prefixo, texto_ncm) "
+                "INSERT INTO anexos_reducao_ncm (anexo, item, prefixo, texto_ncm) "
                 "VALUES ('I', 19, '02109910', '0210.99.1')"
             )
     conexao.rollback()
@@ -255,7 +261,7 @@ def test_check_recusa_prefixo_de_tres_digitos_que_a_ncm_nao_tem(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero_ncm (anexo, item, prefixo, texto_ncm) "
+                "INSERT INTO anexos_reducao_ncm (anexo, item, prefixo, texto_ncm) "
                 "VALUES ('XV', 4, '060', '060')"
             )
     conexao.rollback()
@@ -266,11 +272,11 @@ def test_check_aceita_o_prefixo_de_dois_digitos_que_a_migracao_005_proibia(conex
     aceito. Sem isto o Anexo XV, item 4, seria inserível apenas como erro."""
     with conexao.cursor() as cur:
         cur.execute(
-            "INSERT INTO anexos_reducao_zero_ncm (anexo, item, prefixo, texto_ncm) "
+            "INSERT INTO anexos_reducao_ncm (anexo, item, prefixo, texto_ncm) "
             "VALUES ('XV', 5, '07', '07')"
         )
         cur.execute(
-            "SELECT count(*) FROM anexos_reducao_zero_ncm WHERE prefixo = '07'"
+            "SELECT count(*) FROM anexos_reducao_ncm WHERE prefixo = '07'"
         )
         assert cur.fetchone()[0] == 1
     conexao.rollback()
@@ -283,7 +289,7 @@ def test_check_recusa_anexo_fora_do_conjunto_de_reducao_a_zero(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero "
+                "INSERT INTO anexos_reducao "
                 "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
                 "VALUES ('IV', 4, 1, 'inventado', 'LCP 214/2025, Anexo IV, item 1')"
             )
@@ -297,7 +303,7 @@ def test_check_recusa_ordinal_que_discorda_do_rotulo(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero "
+                "INSERT INTO anexos_reducao "
                 "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
                 "VALUES ('XV', 13, 99, 'inventado', "
                 "'LCP 214/2025, art. 148, Anexo XV, item 99')"
@@ -313,7 +319,7 @@ def test_check_recusa_citacao_legal_que_nao_bate_com_a_chave(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero "
+                "INSERT INTO anexos_reducao "
                 "(anexo, anexo_ordem, item, descricao, dispositivo_legal_ref) "
                 "VALUES ('XII', 12, 44, 'inventado', "
                 "'LCP 214/2025, art. 144, Anexo XII, item 43')"
@@ -327,7 +333,7 @@ def test_check_recusa_citacao_que_ignora_o_sub_item(conexao):
     with pytest.raises(psycopg.errors.CheckViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero "
+                "INSERT INTO anexos_reducao "
                 "(anexo, anexo_ordem, item, sub_item, descricao, dispositivo_legal_ref) "
                 "VALUES ('XIII', 13, 2, 3, 'inventado', "
                 "'LCP 214/2025, art. 145, Anexo XIII, item 2')"
@@ -339,7 +345,7 @@ def test_prefixo_duplicado_no_mesmo_item_e_rejeitado(conexao):
     with pytest.raises(psycopg.errors.UniqueViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero_ncm "
+                "INSERT INTO anexos_reducao_ncm "
                 "(anexo, item, sub_item, prefixo, excecao, texto_ncm) "
                 "VALUES ('XIII', 2, 1, '87131000', FALSE, '8713.10.00')"
             )
@@ -351,7 +357,7 @@ def test_o_mesmo_prefixo_em_sub_itens_diferentes_e_permitido(conexao):
     a chave inteira, senão o Anexo real não caberia na tabela."""
     with conexao.cursor() as cur:
         cur.execute(
-            "SELECT item, sub_item FROM anexos_reducao_zero_ncm "
+            "SELECT item, sub_item FROM anexos_reducao_ncm "
             "WHERE prefixo = '90181980' ORDER BY item, sub_item"
         )
         assert cur.fetchall() == [(1, 2), (1, 3), (14, 0)]
@@ -364,7 +370,7 @@ def test_prefixo_sem_item_existente_e_rejeitado(conexao):
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero_ncm "
+                "INSERT INTO anexos_reducao_ncm "
                 "(anexo, item, sub_item, prefixo, texto_ncm) "
                 "VALUES ('XIII', 2, 9, '99999999', '9999.99.99')"
             )
@@ -378,14 +384,14 @@ def test_prefixo_apontando_para_o_item_certo_do_anexo_errado_e_rejeitado(conexao
     with pytest.raises(psycopg.errors.ForeignKeyViolation):
         with conexao.cursor() as cur:
             cur.execute(
-                "INSERT INTO anexos_reducao_zero_ncm "
+                "INSERT INTO anexos_reducao_ncm "
                 "(anexo, item, sub_item, prefixo, texto_ncm) "
                 "VALUES ('XV', 20, 0, '99999999', '9999.99.99')"
             )
     conexao.rollback()
 
 
-# buscar_reducao_zero_por_prefixo — o lookup que /v1/tax/simulate faz ---------
+# buscar_reducao_por_prefixo — o lookup que /v1/tax/simulate faz ---------
 
 
 class CursorEspiao:
@@ -425,7 +431,7 @@ def test_lookup_devolve_inclusao_e_excecao_no_mesmo_lote(conexao):
     no mesmo `= ANY` — sem segunda consulta."""
     from api.ncm import prefixos_ncm
 
-    linhas = buscar_reducao_zero_por_prefixo(conexao, prefixos_ncm("90213991"))
+    linhas = buscar_reducao_por_prefixo(conexao, prefixos_ncm("90213991"))
 
     por_prefixo = {linha.prefixo: linha for linha in linhas}
     assert por_prefixo["90213"].excecao is False
@@ -435,7 +441,7 @@ def test_lookup_devolve_inclusao_e_excecao_no_mesmo_lote(conexao):
 
 
 def test_lookup_traz_descricao_e_dispositivo_do_item_pelo_join(conexao):
-    linhas = buscar_reducao_zero_por_prefixo(conexao, ["04051000"])
+    linhas = buscar_reducao_por_prefixo(conexao, ["04051000"])
 
     assert len(linhas) == 1
     assert (linhas[0].anexo, linhas[0].item, linhas[0].sub_item) == ("I", 5, 0)
@@ -448,7 +454,7 @@ def test_lookup_traz_descricao_e_dispositivo_do_item_pelo_join(conexao):
 def test_lookup_traz_a_descricao_do_pai_para_o_sub_item(conexao):
     """O LEFT JOIN da Decisão 7: sem ele, a resposta citaria "Sem mecanismo de
     propulsão" como fundamentação legal de uma cadeira de rodas."""
-    linhas = buscar_reducao_zero_por_prefixo(conexao, ["87131000"])
+    linhas = buscar_reducao_por_prefixo(conexao, ["87131000"])
 
     assert len(linhas) == 1
     assert (linhas[0].anexo, linhas[0].item, linhas[0].sub_item) == ("XIII", 2, 1)
@@ -460,17 +466,17 @@ def test_lookup_nunca_devolve_um_cabecalho(conexao):
     """Cabeçalhos (XII/1 e XIII/2) não têm linha de prefixo, então não casam com
     código nenhum — é o que os torna inofensivos. Nenhum destes 4 prefixos
     existe na tabela, ainda que sejam prefixos de códigos que existem."""
-    assert buscar_reducao_zero_por_prefixo(conexao, ["9018", "8713", "87", "90"]) == []
+    assert buscar_reducao_por_prefixo(conexao, ["9018", "8713", "87", "90"]) == []
 
 
 def test_lookup_traz_o_anexo_ordem_da_coluna(conexao):
-    linhas = buscar_reducao_zero_por_prefixo(conexao, ["06", "04051000"])
+    linhas = buscar_reducao_por_prefixo(conexao, ["06", "04051000"])
 
     assert {linha.anexo: linha.anexo_ordem for linha in linhas} == {"XV": 15, "I": 1}
 
 
 def test_lookup_traz_a_alinea_dos_itens_19_e_20_do_anexo_i(conexao):
-    linhas = buscar_reducao_zero_por_prefixo(conexao, ["0207", "0302"])
+    linhas = buscar_reducao_por_prefixo(conexao, ["0207", "0302"])
 
     assert {linha.item: linha.alinea for linha in linhas} == {19: "d", 20: "a"}
 
@@ -478,7 +484,7 @@ def test_lookup_traz_a_alinea_dos_itens_19_e_20_do_anexo_i(conexao):
 def test_prefixo_compartilhado_devolve_as_tres_linhas(conexao):
     """A sobreposição tripla do Anexo XII precisa chegar inteira ao Python — é
     lá que o desempate acontece."""
-    linhas = buscar_reducao_zero_por_prefixo(conexao, ["90181980"])
+    linhas = buscar_reducao_por_prefixo(conexao, ["90181980"])
 
     assert sorted((linha.item, linha.sub_item) for linha in linhas) == [
         (1, 2),
@@ -490,7 +496,7 @@ def test_prefixo_compartilhado_devolve_as_tres_linhas(conexao):
 def test_lote_de_prefixos_resolve_em_exatamente_uma_query(conexao):
     espiao = CursorEspiao(conexao)
 
-    linhas = buscar_reducao_zero_por_prefixo(
+    linhas = buscar_reducao_por_prefixo(
         espiao, ["04051000", "06", "87131000", "90213991", "22030000"]
     )
 
@@ -499,13 +505,13 @@ def test_lote_de_prefixos_resolve_em_exatamente_uma_query(conexao):
 
 
 def test_prefixo_inexistente_devolve_lista_vazia_nao_erro(conexao):
-    assert buscar_reducao_zero_por_prefixo(conexao, ["99999999"]) == []
+    assert buscar_reducao_por_prefixo(conexao, ["99999999"]) == []
 
 
 def test_lista_vazia_nao_abre_cursor(conexao):
     espiao = CursorEspiao(conexao)
 
-    assert buscar_reducao_zero_por_prefixo(espiao, []) == []
+    assert buscar_reducao_por_prefixo(espiao, []) == []
     assert espiao.execucoes == 0
 
 
