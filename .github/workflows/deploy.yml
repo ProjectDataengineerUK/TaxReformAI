@@ -340,6 +340,35 @@ jobs:
           fi
           echo "OK redução percentual (Anexo VIII, item 1, cbs_percentual=${CBS_PCT}, percentual_reducao=${PERCENTUAL})"
 
+          # E2E do PRIMEIRO vocabulário por NBS (não NCM/SH) — Anexo II, item 4
+          # (Ensino Técnico), art. 129. Deliberadamente SEM condição (Anexo II
+          # não tem nenhuma), separada dos 4 tributos/Anexos já verificados
+          # acima: um GRANT faltando nas tabelas NOVAS (anexos_reducao_nbs/
+          # anexos_reducao_nbs_prefixo) degrada para CONSULTA_INDISPONIVEL
+          # silencioso e não afetaria nenhuma das chamadas anteriores.
+          HTTP=$(curl -sS -o /tmp/sim_nbs.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-NBS\",\"ncm\":\"00000000\",\"natureza\":\"SERVICO\",
+                             \"nbs\":\"1.2202.00.00\",\"quantidade\":1,\"valor_unitario\":\"1000.00\",
+                             \"uf_origem\":\"SP\",\"uf_destino\":\"SP\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate (redução por NBS) devolveu $HTTP (esperado 200)."
+            cat /tmp/sim_nbs.json
+            exit 1
+          fi
+
+          CBS_PCT_NBS=$(jq -r '.itens_detalhados[0].aliquotas_aplicadas.cbs_percentual | tonumber' /tmp/sim_nbs.json)
+          ANEXO_NBS=$(jq -r '.itens_detalhados[0].reducao.anexo' /tmp/sim_nbs.json)
+          if [ "$CBS_PCT_NBS" != "0.36" ] || [ "$ANEXO_NBS" != "II" ]; then
+            echo "FALHA: Ensino Técnico (1.2202.00.00, item 4 do Anexo II) não recebeu 60% de redução."
+            echo "anexo=${ANEXO_NBS} cbs_percentual=${CBS_PCT_NBS} (esperado anexo=II cbs_percentual=0.36)"
+            echo "CONSULTA_INDISPONIVEL => migração 011 não aplicada ou GRANT ausente nas tabelas NBS."
+            exit 1
+          fi
+          echo "OK redução por NBS (Anexo II, item 4, cbs_percentual=${CBS_PCT_NBS})"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script

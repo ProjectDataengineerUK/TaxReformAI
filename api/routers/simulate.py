@@ -6,9 +6,14 @@ from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
 from api.db import get_db_pool
 from api.ipi import consultar_ipi_com_seguranca, normalizar_ncm, resolver_item
+from api.nbs import digitos_nbs, prefixos_nbs
 from api.ncm import digitos_ncm, prefixos_ncm
 from api.reducao import consultar_com_seguranca
 from api.reducao import resolver_item as resolver_reducao
+from api.reducao_nbs import (
+    consultar_com_seguranca as consultar_reducao_nbs_com_seguranca,
+)
+from api.reducao_nbs import resolver_item_nbs
 from api.schemas_simulate import (
     AliquotasAplicadas,
     Compensacao,
@@ -173,6 +178,21 @@ def simular(
     )
     consulta_reducao = consultar_com_seguranca(db_pool, prefixos_consultar)
 
+    # Terceira consulta, de vocabulário e domínio de falha SEPARADOS dos dois
+    # acima (Achado crítico 4 do /define de ANEXOS_REDUCAO_PERCENTUAL_NBS):
+    # um prefixo NBS truncado de 5 dígitos tem o MESMO comprimento que um
+    # prefixo NCM válido de 5 dígitos, então a tabela/consulta nunca podem ser
+    # a mesma. Só itens de SERVIÇO com `nbs` preenchido entram aqui.
+    prefixos_nbs_consultar = sorted(
+        {
+            prefixo
+            for item in payload.itens
+            if item.natureza == "SERVICO" and (codigo := digitos_nbs(item.nbs or ""))
+            for prefixo in prefixos_nbs(codigo)
+        }
+    )
+    consulta_reducao_nbs = consultar_reducao_nbs_com_seguranca(db_pool, prefixos_nbs_consultar)
+
     total_ipi: Decimal | None = Decimal(0)
     itens_mercadoria = 0
     ipi_nao_resolvido: list[IpiNaoResolvido] = []
@@ -191,16 +211,30 @@ def simular(
         resultado = engine.calcular(valor_base=valor_base_item, ano_operacao=payload.ano_operacao)
 
         # `reducao` é preenchida nos DOIS ramos (mercadoria e serviço), nunca
-        # por default do modelo — mesma disciplina do `ipi_situacao`.
-        resolucao = resolver_reducao(
-            item.natureza, item.ncm, consulta_reducao, payload.comprador_tipo
-        )
+        # por default do modelo — mesma disciplina do `ipi_situacao`. Serviço
+        # e mercadoria usam vocabulários e trilhas DIFERENTES (NBS x NCM,
+        # Achado crítico 4 do /define de ANEXOS_REDUCAO_PERCENTUAL_NBS) — a
+        # dispatch por `natureza` é o único ponto de contato entre as duas.
+        if item.natureza == "SERVICO":
+            resolucao = resolver_item_nbs(
+                item.natureza,
+                item.nbs,
+                consulta_reducao_nbs,
+                payload.comprador_tipo,
+                item.conteudo_nacional_majoritario,
+                item.vendedor_capital_brasileiro_qualificado,
+            )
+        else:
+            resolucao = resolver_reducao(
+                item.natureza, item.ncm, consulta_reducao, payload.comprador_tipo
+            )
         reducao_item = ReducaoItem(
             situacao=resolucao.situacao.value,
             anexo=resolucao.anexo,
             item=resolucao.item,
             # Em pontos percentuais: 100.00 (zero) ou 60.00. Só quando aplicada
-            # — citar "60%" num item excluído afirmaria um benefício inexistente.
+            # — citar "60%" num item excluído/sem condição satisfeita afirmaria
+            # um benefício inexistente.
             #
             # `quantize` em 2 casas é LOSSLESS por construção da coluna: o
             # catálogo é NUMERIC(5,4), então a fração vai no máximo a 0.9999 e
@@ -211,19 +245,32 @@ def simular(
                 else None
             ),
             dispositivo_legal_ref=resolucao.dispositivo_legal_ref,
-            dispositivo_legal_comprador=resolucao.dispositivo_legal_comprador,
-            zero_por_comprador_disponivel=resolucao.zero_por_comprador_disponivel,
+            # Os 4 atributos abaixo só existem no lado NCM (`dispositivo_legal_
+            # comprador`/`zero_por_comprador_disponivel`, mecanismo de UPGRADE
+            # de IV/V/VI) ou só no lado NBS (`condicao_pendente_ref`/
+            # `reducao_condicionada_disponivel`, mecanismo de GATING de X/XI)
+            # — `getattr` com default preserva o mesmo `ReducaoItem` para as
+            # duas trilhas sem um `isinstance` por campo.
+            dispositivo_legal_comprador=getattr(resolucao, "dispositivo_legal_comprador", None),
+            zero_por_comprador_disponivel=getattr(
+                resolucao, "zero_por_comprador_disponivel", False
+            ),
+            condicao_pendente_ref=getattr(resolucao, "condicao_pendente_ref", None),
+            reducao_condicionada_disponivel=getattr(
+                resolucao, "reducao_condicionada_disponivel", False
+            ),
             descricao=resolucao.descricao,
             descricao_contexto=resolucao.descricao_contexto,
-            ncm_correspondido=resolucao.texto_ncm,
-            tipo_correspondencia=resolucao.tipo_correspondencia,
+            ncm_correspondido=getattr(resolucao, "texto_ncm", None)
+            or getattr(resolucao, "texto_nbs", None),
+            tipo_correspondencia=getattr(resolucao, "tipo_correspondencia", None),
             itens_correspondentes=[
                 ItemCorrespondente(anexo=anexo, item=numero)
                 for anexo, numero in resolucao.itens_correspondentes
             ],
             itens_excluidos=[
                 ItemCorrespondente(anexo=anexo, item=numero)
-                for anexo, numero in resolucao.itens_excluidos
+                for anexo, numero in getattr(resolucao, "itens_excluidos", ())
             ],
         )
 
@@ -249,7 +296,7 @@ def simular(
             total_cbs_dispensado += cbs_dispensado
             total_ibs_dispensado += ibs_dispensado
             itens_com_reducao += 1
-            if resolucao.tipo_correspondencia == "CAPITULO":
+            if getattr(resolucao, "tipo_correspondencia", None) == "CAPITULO":
                 itens_por_capitulo += 1
             anexos_aplicados.add((resolucao.anexo_ordem, resolucao.anexo))
             reducao_item = reducao_item.model_copy(
@@ -261,7 +308,7 @@ def simular(
                     "fonte_legal_transicao": regra.fonte_legal_reducoes,
                 }
             )
-        elif item.natureza == "MERCADORIA" and not resolucao.avaliada:
+        elif not resolucao.avaliada:
             itens_nao_avaliados.append(
                 ItemNaoAvaliado(
                     sku=item.sku, ncm=item.ncm, situacao=resolucao.situacao.value
@@ -468,21 +515,24 @@ def simular(
             f"({', '.join(situacoes_reducao)})"
         )
         advertencia_reducao = (
-            "Os Anexos de redução de CBS/IBS (LCP 214/2025: a zero — I, art. 125; "
-            "XII, art. 144, I; XIII, art. 145, I; XV, art. 148; em 60% — IV, art. "
-            "131; V, art. 132; VI, art. 133, §1º; VII, art. 135; VIII, art. 136; "
-            f"IX, art. 138) NÃO puderam ser verificados integralmente: {motivo} — "
-            "CBS/IBS desses itens seguem com a alíquota geral da fase e podem estar "
-            "SUPERESTIMADOS; ver reducao.itens_nao_avaliados."
+            "Os Anexos de redução de CBS/IBS (LCP 214/2025, por NCM/SH: a zero — I, "
+            "art. 125; XII, art. 144, I; XIII, art. 145, I; XV, art. 148; em 60% — "
+            "IV, art. 131; V, art. 132; VI, art. 133, §1º; VII, art. 135; VIII, art. "
+            "136; IX, art. 138; por NBS: II, art. 129; III, art. 130; XI, art. 142) "
+            f"NÃO puderam ser verificados integralmente: {motivo} — CBS/IBS desses "
+            "itens seguem com a alíquota geral da fase e podem estar SUPERESTIMADOS; "
+            "ver reducao.itens_nao_avaliados."
         )
     elif itens_com_reducao:
         citados = ", ".join(resumo_reducao.anexos_aplicados)
         advertencia_reducao = (
             f"Aplica redução de CBS/IBS a {itens_com_reducao} item(ns) dos Anexos de "
-            f"redução por NCM/SH da LCP 214/2025 (neste payload: {citados}; transição "
-            "pelo art. 348, III, 'a'), com o Anexo, o item e o percentual citados em "
-            "cada um. A correspondência é por NCM/SH e não verifica as condições "
-            "adicionais que o texto de vários itens exige."
+            f"redução por NCM/SH e por NBS da LCP 214/2025 (neste payload: {citados}; "
+            "transição pelo art. 348, III, 'a'), com o Anexo, o item e o percentual "
+            "citados em cada um. A correspondência é por código (NCM/SH ou NBS, "
+            "conforme a natureza do item) e não verifica todas as condições "
+            "adicionais que o texto de vários itens exige (ex. nacionalidade de "
+            "conteúdo do Anexo X, ainda sem itens carregados nesta versão)."
         )
         # A limitação cujo erro é tributo A MENOS — a única do projeto nessa
         # direção — vira frase própria, e não uma linha perdida em `fonte_legal`:
@@ -498,8 +548,9 @@ def simular(
             )
     else:
         advertencia_reducao = (
-            "Nenhum item do payload corresponde aos Anexos de redução por NCM/SH da "
-            "LCP 214/2025 (I, IV, V, VI, VII, VIII, IX, XII, XIII e XV)."
+            "Nenhum item do payload corresponde aos Anexos de redução da LCP "
+            "214/2025 (por NCM/SH: I, IV, V, VI, VII, VIII, IX, XII, XIII e XV; "
+            "por NBS: II, III e XI)."
         )
 
     # Durante a transição os tributos do regime antigo continuam devidos. O
@@ -600,7 +651,8 @@ def simular(
             f"CBS {total_cbs} + IBS {total_ibs} + IS {total_is} sobre "
             f"{valor_bruto_total} ({fase.value}). "
             f"IPI {total_ipi if total_ipi is not None else 'não resolvido'}. "
-            f"Redução de CBS/IBS por NCM (10 Anexos): {itens_com_reducao} item(ns) "
+            f"Redução de CBS/IBS por NCM/NBS ({len(resumo_reducao.anexos_aplicados)} "
+            f"Anexo(s) neste payload): {itens_com_reducao} item(ns) "
             f"reduzido(s), CBS {total_cbs_dispensado} e IBS {total_ibs_dispensado} "
             "dispensados"
             + (

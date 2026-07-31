@@ -44,6 +44,26 @@ class ItemSimulacao(BaseModel):
     # (só carregado para exibição em `ItemDetalhado`) — não há conflito
     # semântico em deixá-lo como está.
     natureza: Literal["MERCADORIA", "SERVICO"] = "MERCADORIA"
+    # Código NBS (Nomenclatura Brasileira de Serviços), vocabulário PRÓPRIO,
+    # nunca comingle com `ncm` (Achado crítico 4 do /define de
+    # ANEXOS_REDUCAO_PERCENTUAL_NBS): 9 dígitos, não 8. Só tem efeito em itens
+    # `natureza="SERVICO"` — item de MERCADORIA com `nbs` preenchido por
+    # engano nunca alcança a trilha de redução por NBS. `None` (default)
+    # preserva o comportamento de todo payload existente antes deste campo.
+    nbs: str | None = None
+    # Declaratório, como `comprador_tipo`/`bem_importado`: a simulação NÃO
+    # verifica nacionalidade de obra/produção. Só afeta itens cujo Anexo X
+    # exija conteúdo nacional majoritário (art. 139, §§1º-3º da LCP
+    # 214/2025) — ausente ou falso, a alíquota geral se aplica e a resposta
+    # cita o que destravaria os 60%.
+    conteudo_nacional_majoritario: bool | None = None
+    # Declaratório: a simulação NÃO verifica composição societária real. Só
+    # afeta itens de segurança da informação/cibernética do Anexo XI cuja
+    # redução dependa de o vendedor ser sociedade com sócio brasileiro ≥20%
+    # do capital social (art. 142, II da LCP 214/2025) — eixo INDEPENDENTE
+    # do `comprador_tipo` (art. 142, I): qualquer um dos dois, satisfeito,
+    # já concede os 60%.
+    vendedor_capital_brasileiro_qualificado: bool | None = None
 
 
 class PayloadSimulacao(BaseModel):
@@ -125,6 +145,16 @@ class ReducaoItem(BaseModel):
     # True quando 60% foi aplicado MAS a alíquota seria zero se o comprador
     # fosse órgão público/entidade CEBAS e o payload tivesse informado.
     zero_por_comprador_disponivel: bool = False
+    # Os dois campos abaixo são do vocabulário NBS (Anexos X/XI, feature
+    # ANEXOS_REDUCAO_PERCENTUAL_NBS) — sempre `None`/`False` para itens
+    # resolvidos pela trilha NCM, cujo mecanismo de condição é o inverso
+    # (upgrade 60%→0%, não gating geral→60%; ver `zero_por_comprador_ref`
+    # acima). Citado sempre que o item TEM condição — informada ou não.
+    condicao_pendente_ref: str | None = None
+    # True só quando a condição existe E não foi satisfeita — "poderia ter
+    # ganhado 60% e não ganhou por falta de nacionalidade/comprador/vendedor
+    # qualificado no payload".
+    reducao_condicionada_disponivel: bool = False
     descricao: str | None = None  # texto literal do item no DOU
     # Descrição do item-pai, quando `item` é sub-item: sem ela, "Sem mecanismo
     # de propulsão" (XIII/2.1) seria a fundamentação inteira (Decisão 7).

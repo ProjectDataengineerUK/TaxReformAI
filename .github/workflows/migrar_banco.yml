@@ -41,6 +41,14 @@ on:
         options:
           - "sim"
           - "nao"
+      verificar_reducao_nbs:
+        description: "Provar que o papel de RUNTIME lê os Anexos de redução por NBS (II, III, XI — Anexo X ainda sem itens), incluindo o desempate de 11 itens do mesmo código e os dois eixos de condição do Anexo XI"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -167,6 +175,19 @@ jobs:
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/verificar_reducao_producao.py
+
+      # Primeiro vocabulário do projeto por NBS, não por NCM/SH — tabelas
+      # NOVAS (anexos_reducao_nbs/anexos_reducao_nbs_prefixo), GRANT NUNCA
+      # exercitado antes deste passo. Mesmo modo de falha silencioso: sem o
+      # GRANT, a API responde 200 com a alíquota geral, indistinguível de
+      # sucesso. O Anexo X é verificado como estando VAZIO de propósito (gap
+      # documentado no BUILD_REPORT desta feature, não regressão).
+      - name: Verificar leitura dos Anexos de redução por NBS pelo papel de runtime
+        if: ${{ inputs.verificar_reducao_nbs == 'sim' }}
+        run: |
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_reducao_nbs_producao.py
 
       - name: Encerrar o proxy
         if: always()

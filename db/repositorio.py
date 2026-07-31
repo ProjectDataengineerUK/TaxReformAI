@@ -175,6 +175,86 @@ def buscar_reducao_por_prefixo(conexao, prefixos: list[str]) -> list[PrefixoRedu
         return [PrefixoReducao(*linha) for linha in cur.fetchall()]
 
 
+@dataclass(frozen=True)
+class PrefixoReducaoNbs:
+    """Uma linha de `anexos_reducao_nbs_prefixo` com o item e o Anexo já
+    resolvidos — irmã de `PrefixoReducao`, mas para o vocabulário NBS.
+
+    `anexo_ordem` e `percentual_reducao` vêm do MESMO catálogo
+    (`anexos_reducao_catalogo`) que já descreve os 10 Anexos NCM: II, III, X e
+    XI só ganharam 4 linhas novas ali (Decisão 1 do DESIGN).
+
+    As três colunas de condição são nulas quando o item NÃO exige a condição
+    correspondente (Anexo II e III inteiros); `condicao_comprador_ref` e
+    `condicao_vendedor_ref` são eixos INDEPENDENTES do Anexo XI (comprador OU
+    vendedor, nunca os dois exigidos ao mesmo tempo) — ver Decisão 4 do
+    DESIGN. `condicao_nacionalidade_ref` é do Anexo X, que esta migração NÃO
+    semeia ainda (ver o cabeçalho da migração 011) — a coluna existe para
+    quando a leitura do art. 139 for possível, sem exigir nova migração de
+    schema.
+
+    `descricao_contexto` é a descrição do item-pai quando esta linha pertence
+    a um sub-item (Anexo XI, item 1 "Serviços") — mesmo mecanismo de
+    self-join de `PrefixoReducao`, nunca uma coluna própria.
+    """
+
+    anexo: str
+    anexo_ordem: int
+    percentual_reducao: Decimal
+    item: int
+    sub_item: int
+    prefixo: str
+    texto_nbs: str
+    descricao: str
+    descricao_contexto: str | None
+    dispositivo_legal_ref: str
+    condicao_nacionalidade_ref: str | None
+    condicao_comprador_ref: str | None
+    condicao_vendedor_ref: str | None
+
+
+def buscar_reducao_nbs_por_prefixo(conexao, prefixos: list[str]) -> list[PrefixoReducaoNbs]:
+    """Lookup em lote dos Anexos de redução por NBS. Sem RLS: dado legal
+    público, igual para todo tenant — mesmo padrão de `buscar_reducao_por_prefixo`.
+
+    Consulta PRÓPRIA, sobre tabelas PRÓPRIAS (`anexos_reducao_nbs` /
+    `anexos_reducao_nbs_prefixo`) — nunca a mesma consulta do NCM com um
+    filtro de vocabulário a mais: um prefixo NBS truncado de 5 dígitos tem o
+    MESMO comprimento que um prefixo NCM válido de 5 dígitos, e só tabelas
+    separadas tornam essa colisão estruturalmente impossível (Achado crítico
+    4 do /define; Decisão 1 do DESIGN).
+
+    Propaga exceção de propósito: quem decide degradar é `api/reducao_nbs.py`
+    (mesma divisão das features anteriores). Lista vazia de retorno significa
+    "nenhum prefixo casou", nunca "falhou".
+    """
+    if not prefixos:
+        return []
+
+    with conexao.cursor() as cur:
+        cur.execute(
+            """
+            SELECT c.anexo, c.anexo_ordem, c.percentual_reducao,
+                   p.item, p.sub_item, p.prefixo, p.texto_nbs,
+                   i.descricao, pai.descricao, i.dispositivo_legal_ref,
+                   i.condicao_nacionalidade_ref, i.condicao_comprador_ref,
+                   i.condicao_vendedor_ref
+            FROM anexos_reducao_nbs_prefixo p
+            JOIN anexos_reducao_nbs i
+              ON i.anexo = p.anexo AND i.item = p.item AND i.sub_item = p.sub_item
+            JOIN anexos_reducao_catalogo c ON c.anexo = i.anexo
+            LEFT JOIN anexos_reducao_nbs pai
+              ON pai.anexo = i.anexo AND pai.item = i.item
+             AND pai.sub_item = 0 AND i.sub_item > 0
+            WHERE p.prefixo = ANY(%s)
+            """,
+            (list(prefixos),),
+        )
+        # A ordem dos campos do SELECT é a ordem do dataclass — se um mudar, o
+        # outro muda junto.
+        return [PrefixoReducaoNbs(*linha) for linha in cur.fetchall()]
+
+
 @contextmanager
 def sessao_do_tenant(conexao, tenant_id: UUID):
     """Transação com `app.tenant_id` declarado, para o RLS enxergar o tenant.
