@@ -369,6 +369,29 @@ jobs:
           fi
           echo "OK redução por NBS (Anexo II, item 4, cbs_percentual=${CBS_PCT_NBS})"
 
+          # E2E do piso do art. 371/Anexo XVI — endpoint DEDICADO, não
+          # /v1/tax/simulate (que já 422 para todo ano_operacao >= 2027,
+          # achado do build desta feature). Prova, numa chamada só, que o
+          # endpoint funciona independente do motor de cálculo do IVA Dual
+          # (2033 é justamente um ano em que /v1/tax/simulate falharia).
+          HTTP=$(curl -sS -o /tmp/piso.json -w '%{http_code}' --max-time 20 \
+            -X GET "${API_URL}/v1/tax/piso-aliquota-ibs/2033" \
+            -H "X-API-Key: ${CHAVE}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/piso-aliquota-ibs/2033 devolveu $HTTP (esperado 200)."
+            cat /tmp/piso.json
+            exit 1
+          fi
+          PISO_PCT=$(jq -r '.limite_inferior_percentual | tonumber' /tmp/piso.json)
+          PISO_APLICAVEL=$(jq -r '.aplicavel' /tmp/piso.json)
+          if [ "$PISO_APLICAVEL" != "true" ] || [ "$PISO_PCT" != "90.5" ]; then
+            echo "FALHA: piso do Anexo XVI para 2033 não é 90.5% (o único ano de salto)."
+            echo "aplicavel=${PISO_APLICAVEL} limite_inferior_percentual=${PISO_PCT}"
+            cat /tmp/piso.json
+            exit 1
+          fi
+          echo "OK piso do Anexo XVI (2033, limite_inferior_percentual=${PISO_PCT})"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script
