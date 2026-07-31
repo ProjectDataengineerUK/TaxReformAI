@@ -49,6 +49,14 @@ on:
         options:
           - "sim"
           - "nao"
+      verificar_imposto_seletivo:
+        description: "Provar que o papel de RUNTIME lê a base de incidência do Imposto Seletivo (Anexo XVII), incluindo a condição de embalagem primária e a exceção de código 8802.60.00"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -188,6 +196,18 @@ jobs:
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/verificar_reducao_nbs_producao.py
+
+      # Primeira feature do projeto sobre um tributo DIFERENTE (Imposto
+      # Seletivo, não CBS/IBS) — tabelas NOVAS (imposto_seletivo_incidencia/
+      # _ncm), GRANT nunca exercitado antes deste passo. Mesmo modo de falha
+      # silencioso: sem o GRANT, o item simplesmente não é classificado
+      # (CONSULTA_INDISPONIVEL), sem afetar CBS/IBS/IPI.
+      - name: Verificar leitura da base de incidência do Imposto Seletivo pelo papel de runtime
+        if: ${{ inputs.verificar_imposto_seletivo == 'sim' }}
+        run: |
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_imposto_seletivo_producao.py
 
       - name: Encerrar o proxy
         if: always()

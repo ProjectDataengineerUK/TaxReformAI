@@ -255,6 +255,69 @@ def buscar_reducao_nbs_por_prefixo(conexao, prefixos: list[str]) -> list[Prefixo
         return [PrefixoReducaoNbs(*linha) for linha in cur.fetchall()]
 
 
+@dataclass(frozen=True)
+class PrefixoIncidenciaIS:
+    """Uma linha de `imposto_seletivo_incidencia_ncm` com a categoria (inciso)
+    já resolvida — irmã de `PrefixoReducao`, mas SEM percentual: o Imposto
+    Seletivo (LCP 214/2025, art. 409) não tem alíquota fixada, e este
+    dataclass nunca a expressa (nem como `None` — o campo simplesmente não
+    existe, Decisão 1 do DESIGN_ANEXO_XVII_IMPOSTO_SELETIVO_INCIDENCIA.md).
+
+    `condicao_embalagem_primaria_ref` é não-nula só nos incisos III/IV
+    (fumígenos, bebidas alcoólicas — art. 409, §2º). `excecao_uso_ref` é
+    não-nula só nos incisos I/II (veículos, aeronaves/embarcações) — citada
+    SEMPRE que a categoria casa, porque a exceção de finalidade de uso
+    (Forças Armadas/Segurança Pública) nunca é verificada por este projeto.
+
+    `excecao=True` só em `8802.60.00` — exclusão por CÓDIGO específico,
+    diferente da exceção de uso (que não tem código próprio a apontar).
+    """
+
+    inciso: int
+    categoria: str
+    dispositivo_legal_ref: str
+    condicao_embalagem_primaria_ref: str | None
+    excecao_uso_ref: str | None
+    prefixo: str
+    excecao: bool
+    texto_ncm: str
+
+
+def buscar_incidencia_is_por_prefixo(conexao, prefixos: list[str]) -> list[PrefixoIncidenciaIS]:
+    """Lookup em lote da base de incidência do Imposto Seletivo. Sem RLS:
+    dado legal público, igual para todo tenant — mesmo padrão das demais
+    consultas deste módulo.
+
+    Consulta PRÓPRIA, sobre tabelas PRÓPRIAS (`imposto_seletivo_incidencia`/
+    `imposto_seletivo_incidencia_ncm`) — sem desempate cross-categoria: as 6
+    categorias com código cobrem faixas de NCM disjuntas, provado pela
+    própria migração 013 (Decisão 2 do DESIGN).
+
+    Propaga exceção de propósito: quem decide degradar é
+    `api/imposto_seletivo.py` (mesma divisão de responsabilidade das demais
+    features). Lista vazia de retorno significa "nenhum prefixo casou",
+    nunca "falhou".
+    """
+    if not prefixos:
+        return []
+
+    with conexao.cursor() as cur:
+        cur.execute(
+            """
+            SELECT i.inciso, i.categoria, i.dispositivo_legal_ref,
+                   i.condicao_embalagem_primaria_ref, i.excecao_uso_ref,
+                   p.prefixo, p.excecao, p.texto_ncm
+            FROM imposto_seletivo_incidencia_ncm p
+            JOIN imposto_seletivo_incidencia i ON i.inciso = p.inciso
+            WHERE p.prefixo = ANY(%s)
+            """,
+            (list(prefixos),),
+        )
+        # A ordem dos campos do SELECT é a ordem do dataclass — se um mudar, o
+        # outro muda junto.
+        return [PrefixoIncidenciaIS(*linha) for linha in cur.fetchall()]
+
+
 @contextmanager
 def sessao_do_tenant(conexao, tenant_id: UUID):
     """Transação com `app.tenant_id` declarado, para o RLS enxergar o tenant.

@@ -5,6 +5,10 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
 from api.db import get_db_pool
+from api.imposto_seletivo import (
+    consultar_com_seguranca as consultar_imposto_seletivo_com_seguranca,
+)
+from api.imposto_seletivo import resolver_item as resolver_imposto_seletivo
 from api.ipi import consultar_ipi_com_seguranca, normalizar_ncm, resolver_item
 from api.nbs import digitos_nbs, prefixos_nbs
 from api.ncm import digitos_ncm, prefixos_ncm
@@ -18,6 +22,7 @@ from api.schemas_simulate import (
     AliquotasAplicadas,
     Compensacao,
     EscopoSimulacao,
+    ImpostoSeletivoItem,
     IpiNaoResolvido,
     ItemCorrespondente,
     ItemDetalhado,
@@ -196,6 +201,16 @@ def simular(
     )
     consulta_reducao_nbs = consultar_reducao_nbs_com_seguranca(db_pool, prefixos_nbs_consultar)
 
+    # Quarta consulta, de domínio de falha SEPARADO das 3 anteriores — uma
+    # tabela sem GRANT aqui nunca afeta CBS/IBS/IPI. Reaproveita o MESMO
+    # conjunto de prefixos NCM já calculado para a redução (`prefixos_
+    # consultar`): a base de incidência do IS só usa comprimentos {4,6,8},
+    # um SUBCONJUNTO dos {2,4,5,6,7,8} já gerados — prefixos que não existem
+    # em `imposto_seletivo_incidencia_ncm` simplesmente não casam com nada.
+    consulta_imposto_seletivo = consultar_imposto_seletivo_com_seguranca(
+        db_pool, prefixos_consultar
+    )
+
     total_ipi: Decimal | None = Decimal(0)
     itens_mercadoria = 0
     ipi_nao_resolvido: list[IpiNaoResolvido] = []
@@ -327,6 +342,25 @@ def simular(
         valor_liquido_total += resultado.valor_liquido
 
         restante = UM - resolucao.percentual_reducao if resolucao.aplicada else UM
+
+        # Base de incidência do Imposto Seletivo — preenchida nos DOIS ramos
+        # (mercadoria e serviço) via `resolver_imposto_seletivo`, que já
+        # devolve NAO_APLICAVEL para serviço; NUNCA toca `aliq_is`/`total_is`
+        # (Decisão 1 do DESIGN_ANEXO_XVII_IMPOSTO_SELETIVO_INCIDENCIA.md).
+        resolucao_is = resolver_imposto_seletivo(
+            item.natureza,
+            item.ncm,
+            consulta_imposto_seletivo,
+            item.embalagem_primaria_consumidor_final,
+        )
+        imposto_seletivo_item = ImpostoSeletivoItem(
+            situacao=resolucao_is.situacao.value,
+            categoria=resolucao_is.categoria,
+            dispositivo_legal_ref=resolucao_is.dispositivo_legal_ref,
+            condicao_embalagem_primaria_ref=resolucao_is.condicao_embalagem_primaria_ref,
+            excecao_uso_ref=resolucao_is.excecao_uso_ref,
+        )
+
         itens_detalhados.append(
             ItemDetalhado(
                 sku=item.sku,
@@ -341,6 +375,7 @@ def simular(
                 ),
                 fundamentacao_legal=resultado.fonte_legal,
                 reducao=reducao_item,
+                imposto_seletivo=imposto_seletivo_item,
             )
         )
 

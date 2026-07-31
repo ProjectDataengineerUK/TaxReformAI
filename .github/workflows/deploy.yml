@@ -392,6 +392,31 @@ jobs:
           fi
           echo "OK piso do Anexo XVI (2033, limite_inferior_percentual=${PISO_PCT})"
 
+          # E2E da base de incidência do Imposto Seletivo (Anexo XVII) — um
+          # veículo (inciso I), que sempre declara a exceção de uso nunca
+          # verificada. Domínio de falha SEPARADO de tudo acima: uma tabela
+          # sem GRANT aqui nunca afetaria CBS/IBS/IPI.
+          HTTP=$(curl -sS -o /tmp/sim_is.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2026,\"operacao_tipo\":\"VENDA\",
+                 \"itens\":[{\"sku\":\"SMOKE-IS\",\"ncm\":\"8704.21.10\",\"quantidade\":1,
+                             \"valor_unitario\":\"1000.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"SP\"}]}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate (imposto seletivo) devolveu $HTTP (esperado 200)."
+            cat /tmp/sim_is.json
+            exit 1
+          fi
+          IS_SITUACAO=$(jq -r '.itens_detalhados[0].imposto_seletivo.situacao' /tmp/sim_is.json)
+          IS_CATEGORIA=$(jq -r '.itens_detalhados[0].imposto_seletivo.categoria' /tmp/sim_is.json)
+          if [ "$IS_SITUACAO" != "SUJEITO" ] || [ "$IS_CATEGORIA" != "Veículos" ]; then
+            echo "FALHA: 8704.21.10 não foi classificado como sujeito ao IS (categoria Veículos)."
+            echo "situacao=${IS_SITUACAO} categoria=${IS_CATEGORIA}"
+            echo "CONSULTA_INDISPONIVEL => migração 013 não aplicada ou GRANT ausente."
+            exit 1
+          fi
+          echo "OK base de incidência do IS (Anexo XVII, categoria=${IS_CATEGORIA})"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script

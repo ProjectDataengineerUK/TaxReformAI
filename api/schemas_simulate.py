@@ -64,6 +64,13 @@ class ItemSimulacao(BaseModel):
     # do `comprador_tipo` (art. 142, I): qualquer um dos dois, satisfeito,
     # já concede os 60%.
     vendedor_capital_brasileiro_qualificado: bool | None = None
+    # Declaratório: a simulação NÃO verifica a embalagem real do produto. Só
+    # afeta itens cuja categoria do Anexo XVII (produtos fumígenos, bebidas
+    # alcoólicas) exija embalagem primária destinada ao consumidor final
+    # (LCP 214/2025, art. 409, §2º) para entrar na base de incidência do
+    # Imposto Seletivo — ausente ou falso, a sujeição ao IS fica
+    # NÃO CONFIRMADA (nunca presumida em nenhuma direção).
+    embalagem_primaria_consumidor_final: bool | None = None
 
 
 class PayloadSimulacao(BaseModel):
@@ -186,6 +193,34 @@ class ReducaoItem(BaseModel):
     fonte_legal_transicao: str | None = None
 
 
+class ImpostoSeletivoItem(BaseModel):
+    """Situação do item frente à base de incidência do Imposto Seletivo (IS —
+    LCP 214/2025, art. 409, §§1º-2º, Anexo XVII).
+
+    NUNCA um valor monetário ou percentual: o IS não tem alíquota fixada
+    (lei ordinária ainda inexistente) e este model não tem NENHUM campo para
+    isso, por desenho — não um campo `None`, o campo simplesmente não
+    existe, para que nenhuma versão futura o preencha com `aliq_is` da fase
+    por engano (mesma disciplina da Decisão 1/3 de
+    ANEXO_XVI_PISO_ALIQUOTA_PROPRIA).
+
+    `CONDICAO_NAO_SATISFEITA` cobre os incisos III/IV (fumígenos, bebidas
+    alcoólicas): a sujeição depende de embalagem primária destinada ao
+    consumidor final (art. 409, §2º), que o cliente precisa declarar.
+
+    `excecao_uso_ref` é citado sempre que a categoria vencedora (incisos I/II
+    — veículos, aeronaves/embarcações) tem ressalva por finalidade de uso
+    operacional das Forças Armadas/Segurança Pública — ressalva que esta
+    simulação NUNCA verifica, só declara.
+    """
+
+    situacao: str
+    categoria: str | None = None  # "Veículos", "Bens minerais", etc.
+    dispositivo_legal_ref: str | None = None
+    condicao_embalagem_primaria_ref: str | None = None
+    excecao_uso_ref: str | None = None
+
+
 class ItemDetalhado(BaseModel):
     sku: str
     ncm: str
@@ -195,6 +230,9 @@ class ItemDetalhado(BaseModel):
     # default do modelo — um default silencioso faria um item de mercadoria com
     # bug reportar "não se aplica".
     reducao: ReducaoItem | None = None
+    # Idem — tributo DIFERENTE (Imposto Seletivo, não CBS/IBS), por isso um
+    # bloco próprio, nunca misturado com `reducao`.
+    imposto_seletivo: ImpostoSeletivoItem | None = None
 
 
 class ResumoFinanceiro(BaseModel):
