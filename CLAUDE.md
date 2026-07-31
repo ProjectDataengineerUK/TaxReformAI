@@ -24,9 +24,9 @@
 
 | `ANEXOS_REDUCAO_ZERO_XII_XIII_XV` (`db/migrations/007`+`008`) | ✅ Shipado (`.claude/sdd/archive/ANEXOS_REDUCAO_ZERO_XII_XIII_XV/`) — duas verificações reais: `migrar_banco.yml` (run `30445357996`) provou 7 casos, incluindo o desempate de 3 vias do Anexo XII e o prefixo de 2 dígitos do Anexo XV, sem regressão no Anexo I; `deploy.yml` (run `30446862421`) confirmou o Capítulo 6 no smoke test contra a API pública | Generalizou o schema do Anexo I para os **4 Anexos de redução a ZERO** da LCP 214/2025: XII (art. 144, dispositivos médicos), XIII (art. 145, acessibilidade) e XV (art. 148, hortícolas/frutas/ovos). Prefixo passa a aceitar **capítulo (2 dígitos)**. Bloco da resposta renomeado de `cesta_basica` para `reducao_zero` (depois generalizado de novo, ver linha abaixo) — 12ª posição do roadmap, primeira da "segunda leva" |
 | `ANEXOS_REDUCAO_PERCENTUAL_NCM` (`db/migrations/009`+`010`, `api/reducao.py`, `motor_calculo/reducoes.py`) | ✅ Shipado (`.claude/sdd/archive/ANEXOS_REDUCAO_PERCENTUAL_NCM/`) — duas verificações reais: `migrar_banco.yml` com `verificar_reducao=sim` (run `30544008270`) provou 13 casos contra o Cloud SQL, incluindo a precedência normativa Anexo I/XV sobre o VII, o multi-capítulo do Anexo IX e a condição de comprador dos Anexos IV/V/VI, sem regressão nos 4 Anexos zero herdados; `deploy.yml` (run `30544203775`) confirmou `cbs_percentual=0.36` (Anexo VIII, item 1, sabão de toucador) no smoke test contra a API pública, mais as 3 chamadas anteriores (IPI, Cesta Básica, Capítulo 6) sem regressão | Generaliza de novo o schema (agora **10 Anexos**: os 4 a zero + IV/V/VI/VII/VIII/IX a **60%**) e introduz `aplicar_reducao_percentual` — primeira redução fracionária do projeto, reduz a ALÍQUOTA (não o valor arredondado). Achado do `/design` que refutou uma premissa do `/define`: **117 pares de sobreposição** de NCM entre os Anexos novos e os 4 já shipados, 35 deles no MESMO código de 8 dígitos — sem generalizar o desempate para 6 componentes, 60% venceria zero em 35 casos. Novo campo de payload `comprador_tipo` (`ORGAO_PUBLICO`/`ENTIDADE_CEBAS_SUS`) resolve a condição real dos Anexos IV/V/VI (arts. 144-II/145-II/146§2º — zero quando o comprador é órgão público/CEBAS). Bloco da resposta renomeado de `reducao_zero` para `reducao`, sem alias — 13ª posição do roadmap |
-| `ANEXOS_REDUCAO_PERCENTUAL_NBS` (`db/migrations/011`, `api/nbs.py`, `api/reducao_nbs.py`) | ✅ Shipado (`.claude/sdd/archive/ANEXOS_REDUCAO_PERCENTUAL_NBS/`) — duas verificações reais: `migrar_banco.yml` com `verificar_reducao_nbs=sim` (run `30634605300`) provou os Anexos II/III/XI contra o Cloud SQL com o papel de runtime, incluindo o desempate de 11 itens do Anexo III e os dois eixos de condição do Anexo XI (comprador/vendedor), sem regressão nos 10 Anexos NCM; `deploy.yml` (run `30634735254`) confirmou `cbs_percentual=0.36` (Anexo II, item 4, Ensino Técnico) no smoke test contra a API pública, mais as 4 chamadas anteriores (IPI, Cesta Básica, Capítulo 6, redução percentual NCM) sem regressão | Primeiro vocabulário do projeto por **NBS** (Nomenclatura Brasileira de Serviços, 9 dígitos, não NCM/SH): Anexos II (Educação), III (Saúde) e XI (Segurança/cibersegurança) completos, com tabelas PRÓPRIAS (`anexos_reducao_nbs`/`anexos_reducao_nbs_prefixo`, nunca comingladas com as tabelas NCM) e situação nova `CONDICAO_NAO_SATISFEITA` — o Anexo XI inverte a polaridade de IV/V/VI: não tem "60% incondicional", a alíquota geral é o padrão e a condição (comprador OU vendedor) é que HABILITA os 60%. **Anexo X (art. 139) shipado só no catálogo, com ZERO itens semeados** — o corpo de 544 artigos da LCP 214/2025 excede o que a ferramenta de leitura web deste ambiente processa de uma vez, sem âncora por artigo; os 57 itens do Anexo X foram transcritos mesmo assim (ver BUILD_REPORT), só falta ler o art. 139 para classificá-los — 14ª posição do roadmap |
+| `ANEXOS_REDUCAO_PERCENTUAL_NBS` (`db/migrations/011`+`012`, `api/nbs.py`, `api/reducao_nbs.py`) | ✅ Shipado, **completo** (`.claude/sdd/archive/ANEXOS_REDUCAO_PERCENTUAL_NBS/`) — Anexo X fechado no mesmo dia via continuação pós-ship (migração 012), depois que uma rota alternativa (PDF da Câmara dos Deputados + `pdftotext`, contornando o limite de tamanho da ferramenta de leitura web) conseguiu ler o art. 139 por completo; duas verificações reais: `migrar_banco.yml` com `verificar_reducao_nbs=sim` (run `30634605300` para II/III/XI, ver SHIPPED para o run da 012) provou os 4 Anexos contra o Cloud SQL com o papel de runtime; `deploy.yml` (run `30634735254`) confirmou `cbs_percentual=0.36` (Anexo II, item 4) no smoke test contra a API pública | Primeiro vocabulário do projeto por **NBS** (Nomenclatura Brasileira de Serviços, 9 dígitos, não NCM/SH): os **4 Anexos completos** — II (Educação), III (Saúde), X (Produções artísticas/culturais/audiovisuais, 47 itens) e XI (Segurança/cibersegurança) —, com tabelas PRÓPRIAS (`anexos_reducao_nbs`/`anexos_reducao_nbs_prefixo`, nunca comingladas com as tabelas NCM) e situação nova `CONDICAO_NAO_SATISFEITA` — o Anexo XI inverte a polaridade de IV/V/VI (condição HABILITA os 60% a partir da alíquota geral, não os reduz a partir de 60%) e o Anexo X usa o MESMO mecanismo para a condição de nacionalidade de conteúdo (art. 139, §1º), com o mapeamento item-a-inciso documentado como leitura de boa-fé (não jurisprudência) na migração 012 — 14ª posição do roadmap |
 
-Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run, o schema PostgreSQL real e conectado, o IPI consumindo a TIPI já ingerida, e agora 13 Anexos de redução (4 a zero por NCM, 6 a 60% por NCM, 3 a 60% por NBS, mais o Anexo X só no catálogo) zerando/reduzindo CBS/IBS por item — 13 features shipadas. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL`, `IPI_TIPI_MOTOR_CALCULO`, `REGRAS_TRIBUTARIAS_CACHE`, `ANEXOS_REDUCAO_ZERO_XII_XIII_XV`, `ANEXOS_REDUCAO_PERCENTUAL_NCM` e agora `ANEXOS_REDUCAO_PERCENTUAL_NBS`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
+Os 5 componentes centrais do blueprint (ingestão, motor, orquestração, API, frontend) existem agora, mais a segunda fonte de ingestão (TCU), a camada ETL real (Airflow, escrita), o CD para Cloud Run, o schema PostgreSQL real e conectado, o IPI consumindo a TIPI já ingerida, e agora 14 Anexos de redução (4 a zero por NCM, 6 a 60% por NCM, 4 a 60% por NBS) zerando/reduzindo CBS/IBS por item — 13 features shipadas. A `DEPLOY_CLOUD_RUN` (2026-07-25, `.claude/sdd/archive/DEPLOY_CLOUD_RUN/`) tem **7/7 acceptance tests verificados contra infraestrutura real** — a primeira feature do projeto nesse patamar, seguida por `SCHEMA_POSTGRESQL`, `IPI_TIPI_MOTOR_CALCULO`, `REGRAS_TRIBUTARIAS_CACHE`, `ANEXOS_REDUCAO_ZERO_XII_XIII_XV`, `ANEXOS_REDUCAO_PERCENTUAL_NCM` e agora `ANEXOS_REDUCAO_PERCENTUAL_NBS`. A aplicação está pública, funcionando, e agora persiste dados de verdade.
 
 ### Fontes legais ingeridas (verificado em produção, 2026-07-25)
 
@@ -115,7 +115,7 @@ TaxReformAI/
 │   ├── reducoes.py                 # aplicar_reducao_a_zero — override por ITEM depois de calcular(); CBS/IBS a zero, IS intacto, líquido recomposto. Python puro, zero infra
 │   └── regime_atual.py            # PIS/COFINS + ICMS interestadual + ICMS interno (27 UFs) + ISS piso/teto (regime VIGENTE) — cada alíquota citada por artigo real; IPI NÃO mora aqui (precisa de banco), vive em api/ipi.py
 ├── db/                        # SCHEMA_POSTGRESQL — schema real no Cloud SQL (taxreformai-pg)
-│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app) → 004 (aliquotas_ipi_tipi + GRANT) → 005 (Cesta Básica/Anexo I) → 006 (DROP guardado de regras_tributarias_cache) → 007 (RENAME para anexos_reducao_zero* + chave (anexo,item,sub_item) + prefixo de 2 dígitos) → 008 (seed dos Anexos XII/XIII/XV) → 009 (catálogo `anexos_reducao_catalogo`; RENAME final `anexos_reducao*`, sem o `_zero`) → 010 (seed dos Anexos IV/V/VI/VII/VIII/IX: 261 itens/392 prefixos + 7 asserções, incluindo a prova SQL da remissão do Anexo VII) → 011 (catálogo +4 Anexos NBS; tabelas NOVAS `anexos_reducao_nbs`/`anexos_reducao_nbs_prefixo`, dedicadas, nunca comingladas com as NCM; seed de II/III/XI — Anexo X só no catálogo, zero itens, gap documentado)
+│   ├── migrations/              # 001 (tabelas) → 002 (RLS) → 003 (privilégio mínimo do papel app) → 004 (aliquotas_ipi_tipi + GRANT) → 005 (Cesta Básica/Anexo I) → 006 (DROP guardado de regras_tributarias_cache) → 007 (RENAME para anexos_reducao_zero* + chave (anexo,item,sub_item) + prefixo de 2 dígitos) → 008 (seed dos Anexos XII/XIII/XV) → 009 (catálogo `anexos_reducao_catalogo`; RENAME final `anexos_reducao*`, sem o `_zero`) → 010 (seed dos Anexos IV/V/VI/VII/VIII/IX: 261 itens/392 prefixos + 7 asserções, incluindo a prova SQL da remissão do Anexo VII) → 011 (catálogo +4 Anexos NBS; tabelas NOVAS `anexos_reducao_nbs`/`anexos_reducao_nbs_prefixo`, dedicadas, nunca comingladas com as NCM; seed de II/III/XI) → 012 (seed do Anexo X, 47 itens, mapeamento item-a-inciso do art. 139 documentado — fechado no mesmo dia via PDF da Câmara dos Deputados)
 │   ├── migrador.py               # Runner idempotente, sem ORM
 │   └── repositorio.py             # sessao_do_tenant, registrar_parecer, resolver_tenant, buscar_ipi_por_ncm e buscar_reducao_por_prefixo (ambos em lote, 1 query; a segunda já traz o percentual/ordinal/condição de comprador do catálogo via JOIN)
 ├── api/db.py                # Pool de conexão (Depends, overridável em teste — mesmo padrão de api/config.get_settings)
@@ -124,7 +124,7 @@ TaxReformAI/
 ├── api/ncm.py                # Vocabulário da NCM/SH — digitos_ncm (8 dígitos canônicos) + prefixos_ncm ({2,4,5,6,7,8}, sem o 3, que a NCM não tem); UMA noção de "NCM válido" para IPI e redução
 ├── api/reducao.py            # ANEXOS_REDUCAO (10 Anexos NCM: 4 a zero + 6 a 60%) — resolver_item (6 situações, + comprador_tipo) + consultar_com_seguranca + formatar_item; desempate de 6 componentes; degradação CONSERVADORA (alíquota geral, nunca null)
 ├── api/nbs.py                # ANEXOS_REDUCAO_PERCENTUAL_NBS — digitos_nbs (9 dígitos, classificador de topo "1") + prefixos_nbs ({5,6,7,9}); vocabulário PRÓPRIO, nunca comingle com NCM
-├── api/reducao_nbs.py        # ANEXOS_REDUCAO_PERCENTUAL_NBS — resolver_item_nbs (Anexos II/III/XI; X ainda sem itens); SituacaoReducaoNbs com CONDICAO_NAO_SATISFEITA (gating, inverso do upgrade zero-por-comprador do lado NCM)
+├── api/reducao_nbs.py        # ANEXOS_REDUCAO_PERCENTUAL_NBS — resolver_item_nbs (Anexos II/III/X/XI completos); SituacaoReducaoNbs com CONDICAO_NAO_SATISFEITA (gating, inverso do upgrade zero-por-comprador do lado NCM); cobre tanto a condição de comprador/vendedor (XI) quanto a de nacionalidade de conteúdo (X)
 ├── api/Dockerfile           # DEPLOY_CLOUD_RUN — build context é a RAIZ do repo; copia api/, motor_calculo/, orquestracao/, ingestion/ E db/
 ├── frontend/Dockerfile       # DEPLOY_CLOUD_RUN — multi-stage (deps→builder→runner), Next.js standalone, usuário não-root
 ├── requirements-api.txt      # Deps de runtime SÓ da API (fastapi/uvicorn/pydantic/psycopg) — o que vai para a imagem; requirements.txt inclui via `-r`
@@ -153,8 +153,9 @@ TaxReformAI/
 | `db/migrations/005_cesta_basica_anexo_i.sql` | A transcrição literal do Anexo I (26 itens, 95 prefixos) com a URL da fonte primária no cabeçalho — é o documento de auditoria da Cesta Básica, não só um script. A CHECK `prefixo = regexp_replace(texto_ncm, '[^0-9]', '', 'g')` impede transcrição inconsistente. **Não se edita**: migração aplicada é histórico, e a forma dela foi generalizada pelas 007/009 |
 | `db/migrations/010_anexos_reducao_percentual_ncm.sql` | A transcrição literal dos Anexos IV/V/VI/VII/VIII/IX (261 itens, 392 prefixos), com URL da fonte e 7 asserções — inclusive uma que faz rollback se o desempate por especificidade deixar de honrar a remissão que o próprio Anexo VII escreve para os Anexos I/XV (itens 4, 5, 6, 14 e 15) |
 | `api/reducao.py` | Ponto de entrada dos 10 Anexos de redução por NCM (4 a zero, 6 a 60%) — `resolver_item(natureza, ncm, consulta, comprador_tipo)`, função pura com 6 situações; `EXCLUIDA_EXPRESSAMENTE` (o Anexo exclui o código) NÃO é `FORA_DO_ANEXO`. O desempate de 6 componentes é `(len(prefixo), percentual_efetivo_com_comprador, percentual_reducao_do_catálogo, -anexo_ordem, -item, -sub_item)` — o 2º componente resolve os 35 pares que citam o MESMO NCM de 8 dígitos em dois Anexos diferentes |
-| `api/reducao_nbs.py` | Ponto de entrada dos Anexos II/III/XI por NBS (o X ainda não tem itens) — `resolver_item_nbs(natureza, nbs, consulta, comprador_tipo, conteudo_nacional_majoritario, vendedor_capital_brasileiro_qualificado)`, função pura com uma situação SEM equivalente NCM: `CONDICAO_NAO_SATISFEITA` (o Anexo XI não tem "60% incondicional" — a condição HABILITA os 60% a partir da alíquota geral, não os REDUZ a partir de 60%, inverso de IV/V/VI) |
-| `db/migrations/011_anexos_reducao_percentual_nbs.sql` | Transcrição literal dos Anexos II (9 itens), III (30 itens, incluindo a anomalia de 1 dígito do item 29, completada com nota) e XI Bloco 1 (5 de 14 sub-itens resolvíveis); 4 linhas novas em `anexos_reducao_catalogo` (incl. o Anexo X, cujo catálogo é real mas SEM itens semeados) |
+| `api/reducao_nbs.py` | Ponto de entrada dos 4 Anexos por NBS (II/III/X/XI, todos completos) — `resolver_item_nbs(natureza, nbs, consulta, comprador_tipo, conteudo_nacional_majoritario, vendedor_capital_brasileiro_qualificado)`, função pura com uma situação SEM equivalente NCM: `CONDICAO_NAO_SATISFEITA` (nem o Anexo X nem o XI têm "60% incondicional" — a condição HABILITA os 60% a partir da alíquota geral, não os REDUZ a partir de 60%, inverso de IV/V/VI) |
+| `db/migrations/011_anexos_reducao_percentual_nbs.sql` | Transcrição literal dos Anexos II (9 itens), III (30 itens, incluindo a anomalia de 1 dígito do item 29, completada com nota) e XI Bloco 1 (5 de 14 sub-itens resolvíveis); 4 linhas novas em `anexos_reducao_catalogo` (incl. o Anexo X, semeado só na migração 012) |
+| `db/migrations/012_anexo_x_producoes_nacionais.sql` | Transcrição literal dos 47 itens NBS do Anexo X + o texto integral do art. 139 (obtido via PDF da Câmara dos Deputados, não pela mesma rota da 011); documenta o mapeamento item-a-inciso como leitura de boa-fé, não citação literal — 45 dos 47 itens exigem `conteudo_nacional_majoritario` (só os itens 22 e 40, incisos V/VI, ficam de fora) |
 
 ## Convenções
 
@@ -246,32 +247,44 @@ API conectada — ver `.claude/sdd/archive/SCHEMA_POSTGRESQL/`.
   quando o comprador é órgão público ou entidade CEBAS credenciada ao SUS, 60% caso contrário. É
   DECLARATÓRIO: a simulação não verifica imunidade nem consulta o SUS, só escolhe entre dois
   `Decimal` já carregados no catálogo.
-- **`anexos_reducao_nbs` / `anexos_reducao_nbs_prefixo`** (migração 011; 44 itens/43 prefixos —
-  Anexos II, III e XI) guardam o **primeiro vocabulário do projeto por NBS** (Nomenclatura
-  Brasileira de Serviços, 9 dígitos, classificador de topo sempre "1") — tabelas DEDICADAS, nunca
-  comingladas com `anexos_reducao`/`anexos_reducao_ncm`: um prefixo NBS truncado de 5 dígitos tem o
-  MESMO comprimento que um prefixo NCM válido de 5 dígitos, e só tabelas/consultas separadas tornam
-  a colisão estruturalmente impossível. `anexos_reducao_catalogo` cresceu de 10 para 14 linhas (as
-  4 novas incluem o Anexo X, cujo catálogo é real mas que **não tem nenhum item semeado ainda** —
-  ver abaixo). O Anexo XI introduz uma polaridade de condição INVERSA à de IV/V/VI: lá, 60% é o
+- **`anexos_reducao_nbs` / `anexos_reducao_nbs_prefixo`** (migrações 011 + 012; 91 itens/90
+  prefixos — Anexos II, III, X e XI, **todos completos**) guardam o **primeiro vocabulário do
+  projeto por NBS** (Nomenclatura Brasileira de Serviços, 9 dígitos, classificador de topo sempre
+  "1") — tabelas DEDICADAS, nunca comingladas com `anexos_reducao`/`anexos_reducao_ncm`: um prefixo
+  NBS truncado de 5 dígitos tem o MESMO comprimento que um prefixo NCM válido de 5 dígitos, e só
+  tabelas/consultas separadas tornam a colisão estruturalmente impossível. `anexos_reducao_catalogo`
+  tem 14 linhas. O Anexo XI introduz uma polaridade de condição INVERSA à de IV/V/VI: lá, 60% é o
   padrão e o comprador qualificado ZERA a alíquota; aqui, a alíquota GERAL é o padrão e o comprador
   (art. 142, I) OU o vendedor com sócio brasileiro ≥20% do capital (art. 142, II, só para serviços
   de segurança da informação/cibernética) é que HABILITA os 60% — daí a situação nova
-  `CONDICAO_NAO_SATISFEITA` em `api/reducao_nbs.py`, sem equivalente no lado NCM.
-- **O Anexo X (art. 139, produções artísticas/culturais/audiovisuais) está no catálogo, mas com
-  ZERO itens em `anexos_reducao_nbs`.** O mapeamento dos 47 itens NBS resolvíveis aos incisos
-  (I-VIII) do art. 139 — necessário para saber quais exigem nacionalidade de conteúdo — dependeria
-  de ler o corpo do próprio art. 139, e a ferramenta de leitura web deste ambiente trunca a LCP
-  214/2025 (544 artigos) antes de alcançá-lo, sem âncora por artigo na fonte. Os 57 itens do Anexo
-  X já foram lidos e transcritos (ver `BUILD_REPORT_ANEXOS_REDUCAO_PERCENTUAL_NBS.md`) — falta só
-  ler o art. 139 numa sessão futura para semear a migração 012. Nenhum item de serviço resolve por
-  acidente para esse Anexo enquanto isso não acontece (mesmo comportamento de antes da feature,
-  provado por teste, não escondido).
-- **`ANEXOS_REDUCAO_PERCENTUAL_NBS` foi verificada em duas camadas de infraestrutura real no mesmo
-  dia do ship**: `migrar_banco.yml` (`verificar_reducao_nbs=sim`, run `30634605300`) confirmou os
-  Anexos II/III/XI contra o Cloud SQL com o papel de runtime; `deploy.yml` (run `30634735254`)
-  confirmou `cbs_percentual=0.36` (Anexo II, item 4) no smoke test contra a API pública, sem
-  regressão nas 4 chamadas anteriores (IPI, Cesta Básica, Capítulo 6, redução percentual NCM).
+  `CONDICAO_NAO_SATISFEITA` em `api/reducao_nbs.py`, sem equivalente no lado NCM. O Anexo X (art.
+  139, produções artísticas/culturais/audiovisuais) usa o MESMO mecanismo de gating para a condição
+  de NACIONALIDADE DE CONTEÚDO (art. 139, §1º): 45 dos 47 itens NBS exigem
+  `conteudo_nacional_majoritario=True`, só os itens 22 (feiras de negócios) e 40 (museus) ficam de
+  fora (incisos V/VI, fora do §1º).
+- **O mapeamento dos 47 itens do Anexo X aos incisos (I-VIII) do art. 139 (migração 012) é uma
+  leitura de boa-fé, não uma citação jurisprudencial** — o próprio texto do Anexo X não tem coluna
+  de inciso, então cada item precisou ser lido contra a lista de categorias do caput. A migração
+  documenta 3 grupos por certeza decrescente: itens 1-21/46-48 (licenciamento de direitos autorais)
+  mapeados ao inciso VII por proximidade textual (nenhum inciso cita "obras literárias" ou
+  "fonogramas" literalmente); itens 23-35/41 (suporte à produção audiovisual) cuja PRÓPRIA descrição
+  já diz "produções nacionais"; e itens 55-57 (sonorização/palco) que servem QUALQUER produção do
+  art. 139 — tratados conservadoramente como exigindo a condição, mesmo que a lei os dispense quando
+  servem eventos dos incisos IV/V/VI, porque o código NBS não distingue qual produção está sendo
+  atendida. Ver `db/migrations/012_anexo_x_producoes_nacionais.sql` para o texto integral do art.
+  139 e o raciocínio completo.
+- **O Anexo X não pôde ser semeado no `/build` original (2026-07-31) pela mesma razão já registrada
+  para `planalto.gov.br`/`nbs.economia.gov.br`**: o corpo de 544 artigos da LCP 214/2025 excedia o
+  que a ferramenta de leitura web processava de uma vez. Fechado no MESMO DIA, como continuação
+  pós-ship, ao baixar o "Texto Atualizado" (PDF, 298 páginas) do mirror oficial da Câmara dos
+  Deputados (LegIn) e extrair o texto com `pdftotext -layout` — mesma fonte oficial, rota de acesso
+  diferente, não um mecanismo de contorno de autenticação ou paywall.
+- **`ANEXOS_REDUCAO_PERCENTUAL_NBS` foi verificada em duas camadas de infraestrutura real, com os 4
+  Anexos completos**: `migrar_banco.yml` (`verificar_reducao_nbs=sim`) confirmou os 4 Anexos contra
+  o Cloud SQL com o papel de runtime (run `30634605300` para II/III/XI; ver o SHIPPED para o run
+  específico da migração 012); `deploy.yml` (run `30634735254`) confirmou `cbs_percentual=0.36`
+  (Anexo II, item 4) no smoke test contra a API pública, sem regressão nas 4 chamadas anteriores
+  (IPI, Cesta Básica, Capítulo 6, redução percentual NCM).
 
 ## Regime tributário vigente (`motor_calculo/regime_atual.py`)
 
