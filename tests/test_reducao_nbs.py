@@ -1,9 +1,10 @@
-"""Lógica pura dos Anexos de redução por NBS (II, III, XI — o Anexo X ainda
-não tem itens semeados, ver o cabeçalho da migração 011) — sem banco, sem HTTP.
+"""Lógica pura dos Anexos de redução por NBS (II, III, X, XI) — sem banco, sem
+HTTP.
 
-O seed é lido da PRÓPRIA migração 011, mesmo motivo de `test_reducao_resolucao.py`:
-uma segunda cópia em Python destes 44 itens/43 prefixos divergiria em silêncio
-do que o banco de produção carrega. O SQL de verdade é `test_reducao_nbs_db.py`.
+O seed é lido das PRÓPRIAS migrações 011 (II, III, XI) e 012 (X), mesmo
+motivo de `test_reducao_resolucao.py`: uma segunda cópia em Python destes
+91 itens/90 prefixos divergiria em silêncio do que o banco de produção
+carrega. O SQL de verdade é `test_reducao_nbs_db.py`.
 """
 
 from __future__ import annotations
@@ -22,8 +23,11 @@ from api.reducao_nbs import (
     resolver_item_nbs,
 )
 
-MIGRACAO = Path(__file__).resolve().parents[1] / "db" / "migrations" / "011_anexos_reducao_percentual_nbs.sql"
-_SQL = MIGRACAO.read_text(encoding="utf-8")
+MIGRACOES = Path(__file__).resolve().parents[1] / "db" / "migrations"
+_SQL = (
+    (MIGRACOES / "011_anexos_reducao_percentual_nbs.sql").read_text(encoding="utf-8")
+    + (MIGRACOES / "012_anexo_x_producoes_nacionais.sql").read_text(encoding="utf-8")
+)
 
 _LINHA_CATALOGO_NOVA = re.compile(
     r"\('(II|III|X|XI)',\s*(\d+),\s*([\d.]+),\s*'[^']*',\s*'[^']*',\s*NULL\)"
@@ -34,6 +38,10 @@ _LINHA_ITEM_SIMPLES = re.compile(
 _LINHA_ITEM_XI = re.compile(
     r"\('(XI)',\s*(\d+),\s*(\d+),\s*'((?:[^']|'')*)',\s*'(LCP 214/2025[^']*)',"
     r"\s*(NULL|'[^']*'),\s*(NULL|'[^']*')\)"
+)
+_LINHA_ITEM_X = re.compile(
+    r"\('(X)',\s*(\d+),\s*(\d+),\s*'((?:[^']|'')*)',\s*'(LCP 214/2025[^']*)',"
+    r"\s*(NULL|'[^']*')\)"
 )
 _LINHA_PREFIXO = re.compile(
     r"\('([A-Z]+)',\s*(\d+),\s*(\d+),\s*'(\d+)',\s*'([\d.]+)'\)"
@@ -86,6 +94,15 @@ def _carregar_seed() -> list[_Linha]:
             "condicao_comprador_ref": _texto_ou_none(comprador),
             "condicao_vendedor_ref": _texto_ou_none(vendedor),
         }
+    for anexo, item, sub_item, descricao, dispositivo, nacionalidade in _LINHA_ITEM_X.findall(_SQL):
+        chave = (anexo, int(item), int(sub_item))
+        itens[chave] = {
+            "descricao": descricao,
+            "dispositivo_legal_ref": dispositivo,
+            "condicao_nacionalidade_ref": _texto_ou_none(nacionalidade),
+            "condicao_comprador_ref": None,
+            "condicao_vendedor_ref": None,
+        }
 
     def _contexto(anexo: str, item: int, sub_item: int) -> str | None:
         if sub_item == 0:
@@ -123,11 +140,11 @@ SEED = _carregar_seed()
 
 def test_seed_tem_as_contagens_esperadas():
     """Truncamento na migração passaria em qualquer teste que não conte —
-    mesma razão da asserção `DO $$` da própria migração 011."""
+    mesma razão da asserção `DO $$` das próprias migrações 011/012."""
     por_anexo: dict[str, int] = {}
     for linha in SEED:
         por_anexo[linha.anexo] = por_anexo.get(linha.anexo, 0) + 1
-    assert por_anexo == {"II": 8, "III": 30, "XI": 5}
+    assert por_anexo == {"II": 8, "III": 30, "XI": 5, "X": 47}
 
 
 def _consulta(prefixos_candidatos: list[str]) -> ConsultaReducaoNbs:
@@ -193,13 +210,66 @@ def test_at004_item_sem_codigo_do_anexo_ii_nunca_e_resolvido():
     assert r.situacao is SituacaoReducaoNbs.FORA_DO_ANEXO
 
 
-# AT-006 (adaptado) — itens sem código do Anexo X não existem nesta versão --
+# AT-006 — itens sem código do Anexo X (obras teatrais) nunca resolvem ------
 
 
-def test_anexo_x_nao_tem_nenhum_item_semeado_nesta_versao():
-    """Gap documentado (Decisão 5 do DESIGN): o mapeamento item-a-inciso do
-    art. 139 não pôde ser lido nesta sessão. Nenhum código do Anexo X resolve."""
-    assert not any(linha.anexo == "X" for linha in SEED)
+def test_at006_itens_sem_codigo_do_anexo_x_nunca_existem_na_tabela():
+    """Itens 49-54 (obras teatrais) são célula vazia na fonte — nunca
+    inseridos, mesma disciplina do item 9 do Anexo II."""
+    refs = {linha.dispositivo_legal_ref for linha in SEED if linha.anexo == "X"}
+    for pendente in (49, 50, 51, 52, 53, 54):
+        assert not any(ref.endswith(f"item {pendente}") for ref in refs)
+
+
+# AT-007 — Anexo X, condição de nacionalidade ---------------------------------
+
+
+def test_at007_producao_estrangeira_sem_nacionalidade_informada_fica_na_geral():
+    """Item 3 (licenciamento de obra cinematográfica) exige nacionalidade —
+    sem o campo informado, a alíquota geral se aplica e a resposta declara
+    o que destravaria os 60%."""
+    r = _resolver("1.1103.31.00")
+
+    assert r.situacao is SituacaoReducaoNbs.CONDICAO_NAO_SATISFEITA
+    assert r.percentual_reducao is None
+    assert r.condicao_pendente_ref == "LCP 214/2025, art. 139, §1º c/c inciso VII"
+    assert r.reducao_condicionada_disponivel is True
+
+
+def test_at007_producao_nacional_declarada_ganha_60_por_cento():
+    r = _resolver("1.1103.31.00", conteudo_nacional_majoritario=True)
+
+    assert r.situacao is SituacaoReducaoNbs.APLICADA
+    assert r.percentual_reducao == Decimal("0.6000")
+    assert r.dispositivo_legal_ref == "LCP 214/2025, art. 139, Anexo X, item 3"
+
+
+def test_item_22_feiras_de_negocios_nunca_exige_nacionalidade():
+    """Inciso V/VI — fora do §1º, 60% incondicional dentro do Anexo X.
+    "1.1806.61.00" é um código completo hipotético dentro do prefixo
+    truncado "1.1806.6" publicado pela lei para o item 22."""
+    r = _resolver("1.1806.61.00")
+    assert r.situacao is SituacaoReducaoNbs.APLICADA
+    assert r.percentual_reducao == Decimal("0.6000")
+
+
+def test_item_40_museus_nunca_exige_nacionalidade():
+    r = _resolver("1.2504.11.00")
+    assert r.situacao is SituacaoReducaoNbs.APLICADA
+
+
+def test_itens_de_producao_audiovisual_tem_nacionalidade_embutida_no_texto():
+    """Itens 23-35 já dizem "produções nacionais" na própria descrição —
+    mesmo assim exigem o campo declaratório, nunca presumido True."""
+    r = _resolver("1.2501.11.00")  # item 23
+    assert r.situacao is SituacaoReducaoNbs.CONDICAO_NAO_SATISFEITA
+
+
+def test_itens_42_a_45_nao_existem_na_tabela_nbs_chave_ncm():
+    """Fotografias/quadros/gravuras/esculturas (Anexo X, itens 42-45) são
+    NCM, não NBS — nunca inseridos nesta tabela (AT-005)."""
+    itens_x = {linha.item for linha in SEED if linha.anexo == "X"}
+    assert not ({42, 43, 44, 45} & itens_x)
 
 
 # AT-008 — Anexo XI, item vetado nunca resolvido -----------------------------

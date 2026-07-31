@@ -190,6 +190,41 @@ def test_at001_ensino_tecnico_reduz_60_por_cento_via_nbs(client):
     assert corpo["itens_detalhados"][0]["aliquotas_aplicadas"]["cbs_percentual"] == "0.36"
 
 
+# AT-007 — Anexo X, gating por nacionalidade, de ponta a ponta --------------
+
+
+def test_at007_licenciamento_de_filme_sem_nacionalidade_paga_aliquota_geral(client):
+    corpo = _simular(client, [_item_servico(nbs="1.1103.31.00")]).json()
+    reducao = corpo["itens_detalhados"][0]["reducao"]
+
+    assert reducao["situacao"] == "CONDICAO_NAO_SATISFEITA"
+    assert reducao["percentual_reducao"] is None
+    assert reducao["condicao_pendente_ref"] == "LCP 214/2025, art. 139, §1º c/c inciso VII"
+    assert corpo["itens_detalhados"][0]["aliquotas_aplicadas"]["cbs_percentual"] == "0.900"
+
+
+def test_at007_producao_nacional_declarada_ganha_60_por_cento(client):
+    corpo = _simular(
+        client,
+        [_item_servico(nbs="1.1103.31.00", conteudo_nacional_majoritario=True)],
+    ).json()
+    reducao = corpo["itens_detalhados"][0]["reducao"]
+
+    assert reducao["situacao"] == "APLICADA"
+    assert reducao["percentual_reducao"] == "60.00"
+    assert corpo["reducao"]["anexos_aplicados"] == ["X"]
+
+
+def test_feira_de_negocios_do_anexo_x_nunca_exige_nacionalidade(client):
+    """Item 22 (inciso V/VI) — 60% incondicional dentro do Anexo X."""
+    corpo = _simular(client, [_item_servico(nbs="1.1806.61.00")]).json()
+    reducao = corpo["itens_detalhados"][0]["reducao"]
+
+    assert reducao["situacao"] == "APLICADA"
+    assert reducao["anexo"] == "X"
+    assert reducao["item"] == "22"
+
+
 # AT-010/AT-011 — Anexo XI, gating por comprador, de ponta a ponta -----------
 
 

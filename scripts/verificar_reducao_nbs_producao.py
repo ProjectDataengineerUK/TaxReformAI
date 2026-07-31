@@ -33,8 +33,8 @@ from api.nbs import prefixos_nbs
 from api.reducao_nbs import ConsultaReducaoNbs, SituacaoReducaoNbs, resolver_item_nbs
 from db.repositorio import buscar_reducao_nbs_por_prefixo
 
-ITENS_ESPERADOS = {"II": 8, "III": 30, "XI": 6}
-PREFIXOS_ESPERADOS = {"II": 8, "III": 30, "XI": 5}
+ITENS_ESPERADOS = {"II": 8, "III": 30, "X": 47, "XI": 6}
+PREFIXOS_ESPERADOS = {"II": 8, "III": 30, "X": 47, "XI": 5}
 
 
 def _falhar(mensagem: str) -> None:
@@ -102,12 +102,38 @@ def main() -> None:
                 "algum INSERT foi truncado."
             )
 
-        if itens.get("X", 0) != 0:
+        # Anexo X (art. 139) — happy path com nacionalidade não informada
+        # (alíquota geral) e informada (60%), mais um item sem condição
+        # (inciso V/VI, item 22).
+        filme_sem_nacionalidade = _resolver(conexao, "1.1103.31.00")
+        if filme_sem_nacionalidade.situacao is not SituacaoReducaoNbs.CONDICAO_NAO_SATISFEITA:
             _falhar(
-                f"Anexo X tem {itens.get('X')} item(ns) — esperado 0 (gap "
-                "documentado nesta versão). Se itens foram adicionados por fora "
-                "desta migração, atualize este script e o BUILD_REPORT."
+                f"1.1103.31.00 sem conteudo_nacional_majoritario resolveu "
+                f"{filme_sem_nacionalidade.situacao}, esperado CONDICAO_NAO_SATISFEITA."
             )
+        filme_nacional = _resolver(
+            conexao, "1.1103.31.00", conteudo_nacional_majoritario=True
+        )
+        if (filme_nacional.situacao, filme_nacional.anexo, filme_nacional.item) != (
+            SituacaoReducaoNbs.APLICADA,
+            "X",
+            "3",
+        ):
+            _falhar(
+                f"1.1103.31.00 com conteudo_nacional_majoritario=True resolveu "
+                f"{filme_nacional.situacao} Anexo={filme_nacional.anexo!r} "
+                f"item={filme_nacional.item!r}, esperado APLICADA Anexo='X' item='3'."
+            )
+        feira = _resolver(conexao, "1.1806.61.00")
+        if feira.situacao is not SituacaoReducaoNbs.APLICADA:
+            _falhar(
+                f"1.1806.61.00 (item 22, inciso V/VI) resolveu {feira.situacao}, "
+                "esperado APLICADA sem nenhuma condição informada."
+            )
+        print(
+            "  OK Anexo X: 1.1103.31.00 exige nacionalidade (item 3, inciso VII), "
+            "1.1806.61.00 não exige (item 22, inciso V/VI)"
+        )
 
         # Anexo II — happy path, sem condição.
         ensino = _resolver(conexao, "1.2202.00.00")

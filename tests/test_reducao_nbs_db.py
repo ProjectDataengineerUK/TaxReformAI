@@ -35,7 +35,7 @@ def conexao():
     con.close()
 
 
-def test_seed_carregou_44_itens_e_43_prefixos(conexao):
+def test_seed_carregou_91_itens_e_90_prefixos(conexao):
     with conexao.cursor() as cur:
         cur.execute(
             "SELECT anexo, count(*) FROM anexos_reducao_nbs GROUP BY anexo ORDER BY anexo"
@@ -46,8 +46,8 @@ def test_seed_carregou_44_itens_e_43_prefixos(conexao):
         )
         prefixos = dict(cur.fetchall())
 
-    assert itens == {"II": 8, "III": 30, "XI": 6}  # XI inclui o cabeçalho (item 1)
-    assert prefixos == {"II": 8, "III": 30, "XI": 5}
+    assert itens == {"II": 8, "III": 30, "X": 47, "XI": 6}  # XI inclui o cabeçalho (item 1)
+    assert prefixos == {"II": 8, "III": 30, "X": 47, "XI": 5}
 
 
 def test_catalogo_ganhou_os_4_anexos_novos_sem_perder_os_10_ja_existentes(conexao):
@@ -69,12 +69,28 @@ def test_catalogo_ganhou_os_4_anexos_novos_sem_perder_os_10_ja_existentes(conexa
     ]
 
 
-def test_anexo_x_esta_no_catalogo_mas_sem_nenhum_item_ainda(conexao):
-    """Gap documentado (Decisão 5 do DESIGN) — verificado contra o banco real,
-    não só inferido do Python."""
+def test_anexo_x_tem_47_itens_45_com_condicao_de_nacionalidade(conexao):
+    """Gap da migração 011 fechado pela 012 — verificado contra o banco real,
+    não só inferido do Python. Só os itens 22 e 40 (incisos V/VI) ficam sem
+    condição; os outros 45 exigem `conteudo_nacional_majoritario`."""
     with conexao.cursor() as cur:
         cur.execute("SELECT count(*) FROM anexos_reducao_nbs WHERE anexo = 'X'")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == 47
+        cur.execute(
+            "SELECT count(*) FROM anexos_reducao_nbs "
+            "WHERE anexo = 'X' AND condicao_nacionalidade_ref IS NOT NULL"
+        )
+        assert cur.fetchone()[0] == 45
+
+
+def test_buscar_reducao_nbs_por_prefixo_traz_a_condicao_de_nacionalidade_do_anexo_x(conexao):
+    linhas = buscar_reducao_nbs_por_prefixo(conexao, ["111033100"])  # item 3
+
+    assert len(linhas) == 1
+    linha = linhas[0]
+    assert linha.anexo == "X"
+    assert linha.condicao_nacionalidade_ref == "LCP 214/2025, art. 139, §1º c/c inciso VII"
+    assert linha.condicao_comprador_ref is None
 
 
 def test_os_10_anexos_ncm_sobreviveram_a_extensao_do_catalogo(conexao):
