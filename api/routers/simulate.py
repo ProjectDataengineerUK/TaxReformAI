@@ -24,6 +24,8 @@ from api.schemas_simulate import (
     ItemNaoAvaliado,
     ItemRegimeVigente,
     PayloadSimulacao,
+    PisoAliquotaIbs,
+    PisoAliquotaIbsConsulta,
     ReducaoItem,
     ReducaoResumo,
     RegimeVigenteResumo,
@@ -32,6 +34,7 @@ from api.schemas_simulate import (
 )
 from motor_calculo.engine import TaxCalculatorEngine
 from motor_calculo.fases import fase_para
+from motor_calculo.piso_aliquota_ibs import piso_aliquota_ibs
 from motor_calculo.reducoes import aplicar_reducao_a_zero, aplicar_reducao_percentual
 from motor_calculo.regime_atual import (
     TRIBUTOS_INDISPONIVEIS,
@@ -610,6 +613,12 @@ def simular(
         ),
     )
 
+    # Bloco informativo a nível de REQUISIÇÃO — calculado uma vez, fora do
+    # laço por item, porque o art. 371 não menciona produto, serviço, NCM nem
+    # NBS. `None` quando o ano está fora de [2029, 2077]: o regime deste piso
+    # simplesmente não vigora fora dessa janela.
+    piso = piso_aliquota_ibs(payload.ano_operacao)
+
     resposta = RespostaSimulacao(
         ano_operacao=payload.ano_operacao,
         resumo_financeiro=ResumoFinanceiro(
@@ -640,6 +649,15 @@ def simular(
         ),
         itens_regime_vigente=itens_regime_vigente,
         reducao=resumo_reducao,
+        piso_aliquota_ibs=(
+            PisoAliquotaIbs(
+                ano_operacao=piso.ano_operacao,
+                limite_inferior_percentual=piso.limite_inferior_percentual,
+                dispositivo_legal_ref=piso.dispositivo_legal_ref,
+            )
+            if piso is not None
+            else None
+        ),
     )
 
     registrar_com_seguranca(
@@ -676,3 +694,53 @@ def simular(
     )
 
     return resposta
+
+
+@router.get("/piso-aliquota-ibs/{ano_operacao}", response_model=PisoAliquotaIbsConsulta)
+def consultar_piso_aliquota_ibs(
+    ano_operacao: int,
+    tenant_id: str = Depends(verificar_api_key),
+) -> PisoAliquotaIbsConsulta:
+    """Consulta isolada do piso do art. 371/Anexo XVI, independente de
+    `/v1/tax/simulate`.
+
+    Existe porque `/v1/tax/simulate` recusa (422) QUALQUER `ano_operacao >=
+    2029` hoje — CBS/IBS de referência para as fases `TRANSICAO_ICMS_ISS_
+    2029_2032` e `REGIME_PLENO_2033` não estão em `TabelaAliquotasSeed`
+    (mesmo bloqueio estrutural do "achado 12"). Isso cobre EXATAMENTE a
+    janela em que o piso do Anexo XVI se aplica (2029-2077): o campo
+    `RespostaSimulacao.piso_aliquota_ibs` nunca seria alcançável em nenhuma
+    resposta de sucesso hoje. Este endpoint não depende do motor de cálculo
+    do IVA Dual — só do ano.
+
+    `tenant_id` não é usado no corpo (o dado não tem dimensão de tenant,
+    é lei pública igual para todos) — a dependência existe só pelo
+    efeito colateral de autenticação, mesmo padrão do resto da API.
+    """
+    piso = piso_aliquota_ibs(ano_operacao)
+
+    if piso is None:
+        return PisoAliquotaIbsConsulta(
+            ano_operacao=ano_operacao,
+            aplicavel=False,
+            nota=(
+                "O regime do art. 371 da LCP 214/2025 só vigora de 2029 a "
+                f"2077 — {ano_operacao} está fora dessa janela. Isto é "
+                "'não se aplica', nunca 'não encontrado'."
+            ),
+        )
+
+    return PisoAliquotaIbsConsulta(
+        ano_operacao=piso.ano_operacao,
+        aplicavel=True,
+        limite_inferior_percentual=piso.limite_inferior_percentual,
+        dispositivo_legal_ref=piso.dispositivo_legal_ref,
+        nota=(
+            "Este percentual multiplica a alíquota de referência do IBS da "
+            "respectiva esfera federativa (Estado, Distrito Federal ou "
+            "Município) — uma grandeza calculada a partir de execução "
+            "fiscal real (LCP 214/2025, art. 370), que este simulador NÃO "
+            "calcula. Este campo não produz nenhuma alíquota mínima "
+            "absoluta."
+        ),
+    )

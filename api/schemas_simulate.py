@@ -367,6 +367,48 @@ class RegimeVigenteResumo(BaseModel):
     tributos_nao_calculados: list[str]
 
 
+class PisoAliquotaIbs(BaseModel):
+    """Piso do art. 371/Anexo XVI — NUNCA uma alíquota absoluta. Deliberadamente
+    SEM nenhum campo de alíquota mínima em R$/percentual final: o percentual
+    aqui multiplica a alíquota de referência do IBS da esfera federativa
+    (Estado, Distrito Federal ou Município), uma grandeza calculada a partir
+    de execução fiscal real (LCP 214/2025, art. 370) que este simulador NÃO
+    calcula — ver `motor_calculo/piso_aliquota_ibs.py`. Um campo `None` por
+    padrão convidaria alguém a preenchê-lo depois com a alíquota errada; a
+    ausência do campo em si é a garantia."""
+
+    ano_operacao: int
+    limite_inferior_percentual: Decimal
+    dispositivo_legal_ref: str
+    nota: str = (
+        "Este percentual multiplica a alíquota de referência do IBS da "
+        "respectiva esfera federativa (Estado, Distrito Federal ou "
+        "Município) — uma grandeza calculada a partir de execução fiscal "
+        "real (LCP 214/2025, art. 370), que este simulador NÃO calcula. "
+        "Este campo não produz nenhuma alíquota mínima absoluta."
+    )
+
+
+class PisoAliquotaIbsConsulta(BaseModel):
+    """Resposta de `GET /v1/tax/piso-aliquota-ibs/{ano_operacao}`.
+
+    Existe porque `/v1/tax/simulate` 422 para QUALQUER `ano_operacao >= 2029`
+    hoje (`TabelaAliquotasSeed` não tem `RegraFiscal` para
+    `TRANSICAO_ICMS_ISS_2029_2032` nem `REGIME_PLENO_2033` — CBS/IBS de
+    referência ainda não fixados) — exatamente a janela inteira em que o
+    piso do Anexo XVI se aplica (2029-2077). `RespostaSimulacao.piso_
+    aliquota_ibs` nunca é alcançável em nenhuma resposta de sucesso hoje;
+    este endpoint é o único jeito de consultar o dado agora, independente do
+    bloqueio de CBS/IBS. Ver Decisão 4 do DESIGN_ANEXO_XVI_PISO_ALIQUOTA_
+    PROPRIA.md."""
+
+    ano_operacao: int
+    aplicavel: bool
+    limite_inferior_percentual: Decimal | None = None
+    dispositivo_legal_ref: str | None = None
+    nota: str
+
+
 class RespostaSimulacao(BaseModel):
     status: str = "SUCCESS"
     ano_operacao: int
@@ -377,3 +419,9 @@ class RespostaSimulacao(BaseModel):
     regime_vigente: RegimeVigenteResumo
     itens_regime_vigente: list[ItemRegimeVigente]
     reducao: ReducaoResumo | None = None
+    # Bloco informativo a nível de REQUISIÇÃO (não por item — o art. 371 não
+    # menciona produto, serviço, NCM nem NBS), populado só a partir de
+    # `ano_operacao`. `None` quando o ano está fora de [2029, 2077]: o regime
+    # deste piso simplesmente não vigora fora dessa janela, não é "não
+    # encontrado".
+    piso_aliquota_ibs: PisoAliquotaIbs | None = None
