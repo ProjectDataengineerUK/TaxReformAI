@@ -417,6 +417,30 @@ jobs:
           fi
           echo "OK base de incidência do IS (Anexo XVII, categoria=${IS_CATEGORIA})"
 
+          # E2E do Simples Nacional (Anexos XVIII-XXIII) — endpoint DEDICADO,
+          # independente de /v1/tax/simulate/engine.py. Comércio, 1a Faixa,
+          # 2027: prova a fórmula do art. 18 da LC 123/2006 (alíquota
+          # efetiva) e a partilha por tributo ponta a ponta.
+          HTTP=$(curl -sS -o /tmp/sn.json -w '%{http_code}' --max-time 30 \
+            -X POST "${API_URL}/v1/tax/simulate-simples-nacional" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"ano_operacao\":2027,
+                 \"atividade\":\"COMERCIO\",
+                 \"receita_bruta_acumulada_12_meses\":\"150000.00\",
+                 \"receita_bruta_mes\":\"12500.00\"}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/simulate-simples-nacional devolveu $HTTP (esperado 200)."
+            cat /tmp/sn.json
+            exit 1
+          fi
+          SN_FAIXA=$(jq -r '.faixa' /tmp/sn.json)
+          if [ "$SN_FAIXA" != "1" ]; then
+            echo "FALHA: Comércio com RBT12=150000 não caiu na 1a Faixa."
+            cat /tmp/sn.json
+            exit 1
+          fi
+          echo "OK Simples Nacional (Anexo XVIII, faixa=${SN_FAIXA})"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script
