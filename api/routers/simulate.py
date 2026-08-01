@@ -18,6 +18,11 @@ from api.reducao_nbs import (
     consultar_com_seguranca as consultar_reducao_nbs_com_seguranca,
 )
 from api.reducao_nbs import resolver_item_nbs
+from api.schemas_simples_nacional import (
+    ItemPartilhaSimplesNacional,
+    PayloadSimplesNacional,
+    RespostaSimplesNacional,
+)
 from api.schemas_simulate import (
     AliquotasAplicadas,
     Compensacao,
@@ -49,6 +54,7 @@ from motor_calculo.regime_atual import (
     iss_faixa,
 )
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
+from motor_calculo.simples_nacional import Atividade, calcular_simples_nacional
 from motor_calculo.tabela_aliquotas import TabelaAliquotasSeed
 
 router = APIRouter(prefix="/v1/tax", tags=["simulate"])
@@ -779,3 +785,94 @@ def consultar_piso_aliquota_ibs(
             "absoluta."
         ),
     )
+
+
+@router.post("/simulate-simples-nacional", response_model=RespostaSimplesNacional)
+def simular_simples_nacional(
+    payload: PayloadSimplesNacional,
+    tenant_id: str = Depends(verificar_api_key),
+    db_pool=Depends(get_db_pool),
+) -> RespostaSimplesNacional:
+    """Integração de CBS/IBS à partilha do Simples Nacional (LCP 214/2025,
+    Anexos XVIII-XXIII) — endpoint DEDICADO, independente de `/v1/tax/
+    simulate`.
+
+    Nunca passa por `fase_para`/`TabelaAliquotasSeed`/`engine.py`: o Simples
+    Nacional é um regime SUBSTITUTIVO, não uma redução sobre o IVA Dual do
+    regime geral, e `/v1/tax/simulate` já recusa (422) toda `ano_operacao`
+    diferente de 2026 — exatamente a janela que esta feature precisa
+    (2027-2033). Ver Decisão 1 do DESIGN_SIMPLES_NACIONAL_CBS_IBS_TRANSICAO.md.
+    """
+    if payload.tenant_id != tenant_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="tenant_id do payload não corresponde à credencial autenticada",
+        )
+    if payload.ano_operacao < 2027:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=(
+                "A integração de CBS/IBS à partilha do Simples Nacional "
+                "(LCP 214/2025, Anexos XVIII-XXIII) só vale a partir de "
+                f"2027 — {payload.ano_operacao} está fora dessa janela."
+            ),
+        )
+    atividade = Atividade(payload.atividade.value)
+    if atividade is not Atividade.MEI and payload.receita_bruta_acumulada_12_meses is None:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail="receita_bruta_acumulada_12_meses é obrigatória para toda "
+            "atividade exceto MEI.",
+        )
+
+    try:
+        resultado = calcular_simples_nacional(
+            atividade,
+            payload.receita_bruta_acumulada_12_meses,
+            payload.receita_bruta_mes,
+            payload.ano_operacao,
+        )
+    except ValueError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+
+    resposta = RespostaSimplesNacional(
+        ano_operacao=resultado.ano_operacao,
+        atividade=resultado.atividade.value,
+        faixa=resultado.faixa,
+        receita_bruta_acumulada_12_meses=resultado.receita_bruta_acumulada_12_meses,
+        receita_bruta_mes=resultado.receita_bruta_mes,
+        aliquota_nominal=resultado.aliquota_nominal,
+        valor_deduzir=resultado.valor_deduzir,
+        aliquota_efetiva=resultado.aliquota_efetiva,
+        partilha=[
+            ItemPartilhaSimplesNacional(
+                tributo=tributo,
+                percentual_efetivo=resultado.partilha_percentual.get(tributo),
+                valor_devido=valor,
+            )
+            for tributo, valor in resultado.valores_devidos.items()
+        ],
+        valor_total_das=resultado.valor_total_das,
+        teto_iss_aplicado=resultado.teto_iss_aplicado,
+        icms_iss_fora_do_das=resultado.icms_iss_fora_do_das,
+        dispositivo_legal_ref=resultado.dispositivo_legal_ref,
+    )
+
+    registrar_com_seguranca(
+        db_pool,
+        tenant_id,
+        prompt_consulta=(
+            f"POST /v1/tax/simulate-simples-nacional ano={payload.ano_operacao} "
+            f"atividade={payload.atividade} receita_mes={payload.receita_bruta_mes}"
+        ),
+        resposta_parecer_md=(
+            f"DAS total: {resultado.valor_total_das} "
+            f"(faixa={resultado.faixa}, alíquota efetiva="
+            f"{resultado.aliquota_efetiva})."
+        ),
+        payload_calculo=payload.model_dump(mode="json"),
+    )
+
+    return resposta
