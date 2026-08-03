@@ -94,10 +94,15 @@ jobs:
       - name: Aguardar conclusao (polling)
         run: |
           set -euo pipefail
+          # Achado real: 'list_dag_runs' (underscore) é sintaxe do Airflow 1.x —
+          # composer-3-airflow-2 usa 'list-runs' (hífen). Com stderr suprimido
+          # (2>/dev/null), o comando errado falhava silenciosamente por 30min
+          # sem nenhuma pista. Sem supressão agora, para qualquer novo erro
+          # aparecer no log em vez de ficar mudo.
           STATUS="running"
           for _ in $(seq 1 60); do
             SAIDA=$(gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
-              dags -- list_dag_runs -d ingestao_legal_taxreformai 2>/dev/null || true)
+              dags -- list-runs -d ingestao_legal_taxreformai || true)
             echo "$SAIDA"
             if echo "$SAIDA" | grep -qi "success"; then
               STATUS="success"
