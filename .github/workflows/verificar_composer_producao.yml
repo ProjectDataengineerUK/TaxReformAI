@@ -54,6 +54,17 @@ jobs:
             --environment="$COMPOSER_ENV" --location="$REGION" \
             --source=dags/ingestao_legal_dag.py
 
+      - name: Copiar o pacote ingestion/ para o ambiente
+        run: |
+          # Achado real da 1a execução: só o arquivo da DAG tinha sido
+          # enviado — 'No module named ingestion' porque o pacote em si
+          # (scrapers/parser/embedding/indexing/storage) nunca chegou ao
+          # ambiente. A pasta de DAGs do Composer é o import path das tasks,
+          # então enviar ingestion/ como subpasta ali a torna importável.
+          gcloud composer environments storage dags import \
+            --environment="$COMPOSER_ENV" --location="$REGION" \
+            --source=ingestion --destination=ingestion
+
       - name: Confirmar que a DAG foi descoberta pelo scheduler
         run: |
           set -euo pipefail

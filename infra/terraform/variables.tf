@@ -24,3 +24,20 @@ variable "terraform_sa_email" {
   description = "E-mail da SA que executa o Terraform (extraído de GCP_SA_KEY em runtime)"
   type        = string
 }
+
+# CLOUD_COMPOSER_PROVISIONAMENTO — Settings.from_env() (ingestion/config.py)
+# exige QDRANT_URL/QDRANT_API_KEY como env vars do PROCESSO da task; Airflow
+# Variables (`airflow variables set`) não viram env var automaticamente, só
+# são lidas via Variable.get() no código do DAG, que este projeto não usa.
+# Só a via env_variables do software_config realmente funciona aqui.
+variable "qdrant_url" {
+  description = "URL do Qdrant Cloud (mesmo valor de QDRANT_URL nos GitHub Secrets)"
+  type        = string
+  sensitive   = true
+}
+
+variable "qdrant_api_key" {
+  description = "API key do Qdrant Cloud (mesmo valor de QDRANT_API_KEY nos GitHub Secrets)"
+  type        = string
+  sensitive   = true
+}

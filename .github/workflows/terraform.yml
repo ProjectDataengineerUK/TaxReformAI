@@ -43,6 +43,9 @@ jobs:
         run: terraform init
 
       - name: Terraform Plan
+        env:
+          TF_VAR_qdrant_url: ${{ secrets.QDRANT_URL }}
+          TF_VAR_qdrant_api_key: ${{ secrets.QDRANT_API_KEY }}
         run: |
           terraform plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \

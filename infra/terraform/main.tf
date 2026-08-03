@@ -115,6 +115,20 @@ resource "google_composer_environment" "ingestao_legal" {
       env_variables = {
         GCP_PROJECT_ID  = var.project_id
         GCS_BUCKET_NAME = var.bucket_name
+        QDRANT_URL      = var.qdrant_url
+        QDRANT_API_KEY  = var.qdrant_api_key
+      }
+      # Achados reais da 1a execução da DAG: "No module named 'ingestion'"
+      # (o pacote em si nunca foi enviado, só o arquivo da DAG — corrigido
+      # via upload separado em verificar_composer_producao.yml) e os
+      # pacotes pip que ingestion/ usa (import lazy dentro de __init__),
+      # nunca instalados no ambiente padrão do Composer.
+      pypi_packages = {
+        fastembed           = ""
+        qdrant-client       = ""
+        google-cloud-storage = ""
+        beautifulsoup4      = ""
+        httpx               = ""
       }
     }
 
