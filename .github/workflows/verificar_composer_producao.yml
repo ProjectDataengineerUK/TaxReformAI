@@ -61,9 +61,24 @@ jobs:
           # (scrapers/parser/embedding/indexing/storage) nunca chegou ao
           # ambiente. A pasta de DAGs do Composer é o import path das tasks,
           # então enviar ingestion/ como subpasta ali a torna importável.
-          gcloud composer environments storage dags import \
+          #
+          # find + loop, não '--source=ingestion' direto: a 2a tentativa real
+          # mostrou 'No module named ingestion.config' mesmo depois do import
+          # de diretório — 'dags import' com --source apontando para uma
+          # pasta local não copia recursivamente todos os arquivos/subpastas
+          # de forma confiável. Envia arquivo por arquivo, preservando o
+          # caminho relativo, que é o comportamento documentado e garantido.
+          find ingestion -name "*.py" | while read -r arquivo; do
+            gcloud composer environments storage dags import \
+              --environment="$COMPOSER_ENV" --location="$REGION" \
+              --source="$arquivo" --destination="$(dirname "$arquivo")"
+          done
+
+      - name: Listar o que foi enviado (diagnostico)
+        run: |
+          gcloud composer environments storage dags list \
             --environment="$COMPOSER_ENV" --location="$REGION" \
-            --source=ingestion --destination=ingestion
+            | grep ingestion || echo "NENHUM arquivo de ingestion/ encontrado no bucket de DAGs"
 
       - name: Confirmar que a DAG foi descoberta pelo scheduler
         run: |
