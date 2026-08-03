@@ -100,16 +100,24 @@ jobs:
         env:
           API_KEYS: ${{ secrets.API_KEYS }}
           FRONTEND_URL_ATUAL: ${{ steps.urls.outputs.frontend }}
+          GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
         run: |
           if [ -z "$API_KEYS" ]; then
             echo "Secret API_KEYS ausente. A API subiria devolvendo 401 para tudo."
             exit 1
           fi
           ORIGINS="${FRONTEND_URL_ATUAL:-http://localhost:3000}"
+          # LLM_REAL_VERTEX_AI: GCP_PROJECT_ID/QDRANT_URL/QDRANT_API_KEY
+          # passam a ser lidos em runtime por orquestracao/config.py — antes
+          # desta feature a API nunca falava com Vertex AI nem Qdrant
+          # (pesquisador_legal era fake), então nenhum dos três existia aqui.
+          #
           # ^@^ troca o separador de "," para "@": o JSON de API_KEYS contém
-          # vírgulas e seria truncado com o separador padrão do gcloud. As
-          # três variáveis do Cloud SQL entram no mesmo delimitador — misturar
-          # duas flags --set-env-vars não funciona, a última vence sozinha.
+          # vírgulas e seria truncado com o separador padrão do gcloud. Todas
+          # as variáveis entram no mesmo delimitador — misturar duas flags
+          # --set-env-vars não funciona, a última vence sozinha.
           gcloud run deploy "$SERVICE_API" \
             --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
             --region="$REGION" \
@@ -119,7 +127,7 @@ jobs:
             --quiet \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$CLOUDSQL_CONNECTION_NAME" \
-            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}@DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}@DB_NAME=taxreformai@DB_USER=taxreformai_app" \
+            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}@DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}@DB_NAME=taxreformai@DB_USER=taxreformai_app@GCP_PROJECT_ID=${GCP_PROJECT_ID}@QDRANT_URL=${QDRANT_URL}@QDRANT_API_KEY=${QDRANT_API_KEY}" \
             --set-secrets="DB_PASSWORD=taxreformai-pg-app-password:latest"
 
       - name: Resolver URL da API
@@ -466,6 +474,35 @@ jobs:
           fi
           curl -sS -o /dev/null --max-time 20 -X DELETE "${API_URL}/v1/tax/skus/SMOKE-SKU-1" -H "X-API-Key: ${CHAVE}"
           echo "OK catálogo de SKUs (criar, consultar, excluir)"
+
+          # E2E de LLM_REAL_VERTEX_AI: 1 chamada real a /v1/tax/query exercita,
+          # numa tacada só, os 3 nós que passaram a chamar o Vertex AI de
+          # verdade (classificador/Haiku, extrator_regras/Sonnet,
+          # sintetizador/Sonnet) e a busca híbrida real do pesquisador_legal
+          # no Qdrant — minimiza o número de chamadas reais cobráveis por
+          # verificação (DEFINE, Constraints). Gera custo real de token.
+          HTTP=$(curl -sS -o /tmp/query.json -w '%{http_code}' --max-time 60 \
+            -X POST "${API_URL}/v1/tax/query" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"texto_consulta\":\"Quanto de CBS incide sobre uma venda de R\$ 1000,00 em 2026?\",
+                 \"ano_operacao\":2026,\"valor_base\":\"1000.00\"}")
+          if [ "$HTTP" != "200" ]; then
+            echo "FALHA: /v1/tax/query devolveu $HTTP (esperado 200)."
+            cat /tmp/query.json
+            exit 1
+          fi
+          if grep -q '\[FAKE\]' /tmp/query.json; then
+            echo "FALHA: resposta de /v1/tax/query ainda contém marcador [FAKE] — nó(s) não real(is)."
+            cat /tmp/query.json
+            exit 1
+          fi
+          CHUNKS_RECUPERADOS=$(jq -r '.historico[] | select(.no=="pesquisador_legal") | .resumo_output' /tmp/query.json)
+          if ! echo "$CHUNKS_RECUPERADOS" | grep -qE '^[1-9][0-9]* chunk'; then
+            echo "FALHA: pesquisador_legal não recuperou nenhum chunk real do Qdrant."
+            echo "resumo_output=${CHUNKS_RECUPERADOS}"
+            exit 1
+          fi
+          echo "OK query LLM real (${CHUNKS_RECUPERADOS})"
 
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header

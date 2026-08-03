@@ -1,12 +1,12 @@
 from decimal import Decimal
 
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 class PayloadConsulta(BaseModel):
-    texto_consulta: str
+    texto_consulta: str = Field(min_length=1)
     ano_operacao: int
-    valor_base: Decimal
+    valor_base: Decimal = Field(gt=0)
 
 
 class TransicaoResposta(BaseModel):

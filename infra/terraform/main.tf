@@ -311,6 +311,30 @@ resource "google_secret_manager_secret_iam_member" "runtime_le_senha_app" {
   member    = "serviceAccount:${google_service_account.runtime_sa.email}"
 }
 
+# --- Vertex AI (Claude via Agent Platform) — LLM_REAL_VERTEX_AI ---
+# Primeira role de PROJETO concedida à SA de runtime desde que ela foi criada
+# deliberadamente sem nenhuma (ver comentário acima de `runtime_sa`). Desvio
+# intencional, não descuido: `roles/aiplatform.user` não tem equivalente
+# restrito a um recurso específico para modelos de publisher do Model Garden,
+# diferente de `cloudsql.client` (que já é, em si, escopado à instância via
+# IAM condicional implícito do produto). A chamada ao Vertex AI usa o
+# endpoint `global` (Decision 2 do DESIGN de LLM_REAL_VERTEX_AI) — não fixa
+# região, então nenhuma variável de região é necessária aqui.
+
+resource "google_project_service" "aiplatform" {
+  project            = var.project_id
+  service            = "aiplatform.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_iam_member" "runtime_aiplatform_user" {
+  project = var.project_id
+  role    = "roles/aiplatform.user"
+  member  = "serviceAccount:${google_service_account.runtime_sa.email}"
+
+  depends_on = [google_project_service.aiplatform]
+}
+
 # A verificação pós-deploy (deploy.yml) só faz SELECT em pareceres_audit_log
 # dentro da sessão do próprio tenant — não precisa do papel admin, então lê a
 # senha do app, não a do admin. Least privilege: a SA de deploy nunca ganha

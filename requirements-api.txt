@@ -2,15 +2,22 @@
 #
 # Mantenha esta lista mínima: é o que vai para a imagem de produção do Cloud Run.
 # Rastreado a partir dos imports reais de api/, orquestracao/ e motor_calculo/.
-# O único acoplamento com ingestion/ é ingestion.chunking.chunk_models.Chunk,
-# um modelo Pydantic puro (todos os __init__.py do caminho estão vazios), então
-# nada de qdrant-client/fastembed/google-cloud-storage é necessário aqui.
 #
 # requirements.txt inclui este arquivo via `-r`, então as duas listas não podem
 # divergir: adicionar algo aqui é suficiente para o CI também instalar.
 fastapi>=0.115
 uvicorn>=0.30
 pydantic>=2.7
+
+# LLM_REAL_VERTEX_AI: até esta feature, o acoplamento com ingestion/ era só
+# ingestion.chunking.chunk_models.Chunk (Pydantic puro) — nenhuma dependência
+# pesada de ingestão era necessária aqui, porque `pesquisador_legal` era fake.
+# Agora `orquestracao/nos/pesquisador_legal.py` faz busca híbrida REAL a cada
+# `/v1/tax/query`, então a imagem da API precisa do client Qdrant e do
+# embedder — a mesma exclusão documentada acima deixou de valer.
+anthropic[vertex]>=0.40
+qdrant-client>=1.10
+fastembed>=0.3
 
 # API_EMPRESA_SKUS: upload de SKUs em CSV (multipart/form-data) — FastAPI
 # exige este pacote para aceitar UploadFile/File(...). Já era instalado como

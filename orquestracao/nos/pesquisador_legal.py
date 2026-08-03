@@ -1,28 +1,28 @@
-import datetime
-
 from ingestion.chunking.chunk_models import Chunk
+from orquestracao.dependencias import DependenciasOrquestracao
 from orquestracao.estado import State
 
 
-def no_pesquisador_legal(state: State) -> State:
-    # FAKE — sem Qdrant Cloud real disponível nesta feature (ver DEFINE, Constraints).
-    # Retorna Chunks no schema real de ingestion/chunking/chunk_models.py, para que a
-    # forma do dado já esteja correta quando a busca real for conectada.
-    chunk_sintetico = Chunk(
-        documento_id="LCP_214_2025",
-        dispositivo="Art. 1, Inciso I",
-        esfera="FEDERAL_CBS_IBS",
-        data_vigencia_inicio=datetime.date(state.ano_operacao, 1, 1),
-        texto="o Imposto sobre Bens e Serviços (IBS), de competência compartilhada entre "
-        "Estados, Municípios e Distrito Federal",
-        parent_texto="Ficam instituídos:",
-        fonte_url="https://www.planalto.gov.br/ccivil_03/leis/lcp/Lcp214.htm",
-    )
+def no_pesquisador_legal(state: State, deps: DependenciasOrquestracao) -> State:
+    # Assert, não fallback silencioso: achado da revisão de segurança de
+    # LLM_REAL_VERTEX_AI — um `or state.texto_consulta` aqui falharia mudo se
+    # este nó rodasse antes do classificador (ex: grafo reordenado no futuro),
+    # vazando PII não mascarado para o embedder/Qdrant sem nenhum sinal.
+    assert state.texto_mascarado is not None, "texto_mascarado precisa existir antes da busca legal"
+    consulta_embutida = deps.embedder.embed_consulta(state.texto_mascarado)
 
-    state.chunks_legais = [chunk_sintetico]
+    resultado = deps.qdrant_indexer.search_hybrid(
+        dense_query=consulta_embutida.dense_vector,
+        sparse_indices=consulta_embutida.sparse_indices,
+        sparse_values=consulta_embutida.sparse_values,
+        limit=5,
+    )
+    chunks = [Chunk.model_validate(ponto.payload) for ponto in resultado.points]
+
+    state.chunks_legais = chunks
     state.registrar_transicao(
         no="pesquisador_legal",
         resumo_input=state.intencao or "",
-        resumo_output=f"{len(state.chunks_legais)} chunk(s) retornado(s) [FAKE]",
+        resumo_output=f"{len(chunks)} chunk(s) reais recuperados do Qdrant",
     )
     return state

@@ -4,13 +4,13 @@
 # de verdade, as duas listas não podem divergir.
 -r requirements-api.txt
 
-# Ingestão (scrapers, parser AST, embedding, indexação) — fora da imagem da API.
+# Ingestão (scrapers, parser AST, indexação) — fora da imagem da API.
+# qdrant-client/fastembed NÃO estão aqui: já vêm via requirements-api.txt
+# (LLM_REAL_VERTEX_AI) desde que a busca híbrida do Pesquisador Legal ficou real.
 httpx>=0.27
 beautifulsoup4>=4.12
 lxml>=5.0
-qdrant-client>=1.10
 google-cloud-storage>=2.16
-fastembed>=0.3
 typer>=0.12
 
 # Banco relacional (schema da seção 7). psycopg 3, sem ORM — ver Decisão 3 do
