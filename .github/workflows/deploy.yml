@@ -118,21 +118,24 @@ jobs:
           # vírgulas e seria truncado com o separador padrão do gcloud. Todas
           # as variáveis entram no mesmo delimitador — misturar duas flags
           # --set-env-vars não funciona, a última vence sozinha.
-          # --memory/--cpu: LLM_REAL_VERTEX_AI — achado real do primeiro deploy
-          # pós-feature: /v1/tax/query devolvia 503 puro do Cloud Run (não o
-          # JSON de erro da aplicação), consistente com OOM-kill no default de
-          # 512Mi. `pesquisador_legal` agora constrói `FastEmbedHybridEmbedder`
-          # de verdade na primeira request real, que carrega o modelo ONNX
-          # multilingual-e5-large (~1GB+) — peso que o container nunca
-          # precisou suportar enquanto o nó era fake.
+          # --memory/--cpu: LLM_REAL_VERTEX_AI — achado real, CONFIRMADO via
+          # Cloud Logging (workflow diagnostico_cloud_run_logs.yml) em duas
+          # tentativas reais: 512Mi -> "Memory limit of 512 MiB exceeded with
+          # 529 MiB used"; 2Gi -> "Memory limit of 2048 MiB exceeded with
+          # 2065 MiB used". `pesquisador_legal` constrói `FastEmbedHybridEmbedder`
+          # de verdade na primeira request real, carregando o modelo ONNX
+          # multilingual-e5-large (~560M parâmetros) + o modelo esparso BM25 —
+          # peso que o container nunca precisou suportar enquanto o nó era
+          # fake. 4Gi dá folga real acima do pico observado (~2065MB), não só
+          # mais uma margem apertada.
           gcloud run deploy "$SERVICE_API" \
             --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
             --region="$REGION" \
             --platform=managed \
             --allow-unauthenticated \
             --port=8080 \
-            --memory=2Gi \
-            --cpu=2 \
+            --memory=4Gi \
+            --cpu=4 \
             --quiet \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$CLOUDSQL_CONNECTION_NAME" \
