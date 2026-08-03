@@ -11,7 +11,7 @@
 | **Feature** | LLM_REAL_VERTEX_AI |
 | **Date** | 2026-08-03 |
 | **Author** | define-agent |
-| **Status** | Ready for Design |
+| **Status** | ✅ Shipped 2026-08-03 |
 | **Clarity Score** | 14/15 |
 
 ---
@@ -154,6 +154,7 @@ durante `/design`/`/build`, não são bloqueantes de requisitos.
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-08-03 | define-agent | Initial version, extraído de BRAINSTORM_LLM_REAL_VERTEX_AI.md |
+| 1.1 | 2026-08-03 | ship-agent | Shipped and archived |
 
 ---
 

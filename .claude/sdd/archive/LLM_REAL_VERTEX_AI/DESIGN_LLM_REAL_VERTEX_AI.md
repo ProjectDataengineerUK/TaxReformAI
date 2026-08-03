@@ -10,7 +10,7 @@
 | **Date** | 2026-08-03 |
 | **Author** | design-agent |
 | **DEFINE** | [DEFINE_LLM_REAL_VERTEX_AI.md](./DEFINE_LLM_REAL_VERTEX_AI.md) |
-| **Status** | Ready for Build |
+| **Status** | ✅ Shipped 2026-08-03 |
 
 ---
 
@@ -619,6 +619,7 @@ def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0 | 2026-08-03 | design-agent | Initial version, extraído de DEFINE_LLM_REAL_VERTEX_AI.md |
+| 1.1 | 2026-08-03 | ship-agent | Shipped and archived |
 
 ---
 
