@@ -441,6 +441,32 @@ jobs:
           fi
           echo "OK Simples Nacional (Anexo XVIII, faixa=${SN_FAIXA})"
 
+          # E2E do catálogo de SKUs (API_EMPRESA_SKUS) — round-trip completo
+          # (criar, consultar, excluir) para o smoke test ser IDEMPOTENTE
+          # entre deploys: sem o DELETE final, o segundo deploy bateria num
+          # 409 de codigo_sku duplicado neste mesmo tenant.
+          HTTP=$(curl -sS -o /tmp/sku.json -w '%{http_code}' --max-time 20 \
+            -X POST "${API_URL}/v1/tax/skus" \
+            -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+            -d "{\"tenant_id\":\"${TENANT}\",\"codigo_sku\":\"SMOKE-SKU-1\",
+                 \"descricao\":\"SKU de smoke test\",\"natureza\":\"MERCADORIA\",
+                 \"ncm_code\":\"22030000\"}")
+          if [ "$HTTP" != "201" ]; then
+            echo "FALHA: POST /v1/tax/skus devolveu $HTTP (esperado 201)."
+            cat /tmp/sku.json
+            exit 1
+          fi
+          HTTP=$(curl -sS -o /tmp/sku_get.json -w '%{http_code}' --max-time 20 \
+            -X GET "${API_URL}/v1/tax/skus/SMOKE-SKU-1" -H "X-API-Key: ${CHAVE}")
+          NCM_SKU=$(jq -r '.ncm_code' /tmp/sku_get.json)
+          if [ "$HTTP" != "200" ] || [ "$NCM_SKU" != "22030000" ]; then
+            echo "FALHA: GET /v1/tax/skus/SMOKE-SKU-1 devolveu $HTTP, ncm_code=$NCM_SKU (esperado 200/22030000)."
+            cat /tmp/sku_get.json
+            exit 1
+          fi
+          curl -sS -o /dev/null --max-time 20 -X DELETE "${API_URL}/v1/tax/skus/SMOKE-SKU-1" -H "X-API-Key: ${CHAVE}"
+          echo "OK catálogo de SKUs (criar, consultar, excluir)"
+
           if [ -n "$FRONTEND_URL" ]; then
             # `|| true` é essencial: quando a origem é recusada não existe header
             # algum, o grep sai 1 e, com `set -euo pipefail`, mataria o script
