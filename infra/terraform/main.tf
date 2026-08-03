@@ -100,8 +100,8 @@ resource "google_project_iam_member" "terraform_composer_admin" {
 # account". Mesmo padrão já usado para deployer_actas_runtime (deploy.yml).
 resource "google_service_account_iam_member" "terraform_actas_ingestion" {
   service_account_id = google_service_account.ingestion_sa.name
-  role                = "roles/iam.serviceAccountUser"
-  member              = "serviceAccount:${var.terraform_sa_email}"
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${var.terraform_sa_email}"
 }
 
 resource "google_composer_environment" "ingestao_legal" {
@@ -124,15 +124,42 @@ resource "google_composer_environment" "ingestao_legal" {
       # pacotes pip que ingestion/ usa (import lazy dentro de __init__),
       # nunca instalados no ambiente padrão do Composer.
       pypi_packages = {
-        fastembed           = ""
-        qdrant-client       = ""
+        fastembed            = ""
+        qdrant-client        = ""
         google-cloud-storage = ""
-        beautifulsoup4      = ""
-        httpx               = ""
+        beautifulsoup4       = ""
+        httpx                = ""
       }
     }
 
-    environment_size = "ENVIRONMENT_SIZE_SMALL"
+    environment_size = "ENVIRONMENT_SIZE_MEDIUM"
+
+    # Achado real: com ENVIRONMENT_SIZE_SMALL (worker default ~2GB), as 3
+    # tentativas automáticas da DAG travaram no mesmo ponto (2 de 6 arquivos
+    # do modelo intfloat/multilingual-e5-large baixados via fastembed, sem
+    # nenhum erro logado) — sinal de kill silencioso por falta de memória.
+    # Worker explícito com mais CPU/memória para o carregamento do modelo
+    # em ONNX (~1-2GB só o peso, mais overhead do runtime Python/Celery).
+    workloads_config {
+      scheduler {
+        cpu        = 1
+        memory_gb  = 2
+        storage_gb = 1
+        count      = 1
+      }
+      web_server {
+        cpu        = 1
+        memory_gb  = 2
+        storage_gb = 1
+      }
+      worker {
+        cpu        = 2
+        memory_gb  = 8
+        storage_gb = 5
+        min_count  = 1
+        max_count  = 1
+      }
+    }
 
     node_config {
       service_account = google_service_account.ingestion_sa.email
