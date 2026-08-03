@@ -118,12 +118,21 @@ jobs:
           # vírgulas e seria truncado com o separador padrão do gcloud. Todas
           # as variáveis entram no mesmo delimitador — misturar duas flags
           # --set-env-vars não funciona, a última vence sozinha.
+          # --memory/--cpu: LLM_REAL_VERTEX_AI — achado real do primeiro deploy
+          # pós-feature: /v1/tax/query devolvia 503 puro do Cloud Run (não o
+          # JSON de erro da aplicação), consistente com OOM-kill no default de
+          # 512Mi. `pesquisador_legal` agora constrói `FastEmbedHybridEmbedder`
+          # de verdade na primeira request real, que carrega o modelo ONNX
+          # multilingual-e5-large (~1GB+) — peso que o container nunca
+          # precisou suportar enquanto o nó era fake.
           gcloud run deploy "$SERVICE_API" \
             --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
             --region="$REGION" \
             --platform=managed \
             --allow-unauthenticated \
             --port=8080 \
+            --memory=2Gi \
+            --cpu=2 \
             --quiet \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$CLOUDSQL_CONNECTION_NAME" \
