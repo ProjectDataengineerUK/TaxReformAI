@@ -94,6 +94,16 @@ resource "google_project_iam_member" "terraform_composer_admin" {
   depends_on = [google_project_service.composer]
 }
 
+# 2o achado real da mesma tentativa: mesmo com composer.admin, o Terraform
+# ainda precisa de actAs sobre a SA que vira a identidade de runtime do
+# ambiente (taxreform-ingestion) — 403 "User not authorized to act as service
+# account". Mesmo padrão já usado para deployer_actas_runtime (deploy.yml).
+resource "google_service_account_iam_member" "terraform_actas_ingestion" {
+  service_account_id = google_service_account.ingestion_sa.name
+  role                = "roles/iam.serviceAccountUser"
+  member              = "serviceAccount:${var.terraform_sa_email}"
+}
+
 resource "google_composer_environment" "ingestao_legal" {
   project = var.project_id
   name    = "taxreformai-ingestao-legal"
@@ -119,6 +129,7 @@ resource "google_composer_environment" "ingestao_legal" {
     google_project_service.composer,
     google_project_iam_member.ingestion_composer_worker,
     google_project_iam_member.terraform_composer_admin,
+    google_service_account_iam_member.terraform_actas_ingestion,
   ]
 }
 
