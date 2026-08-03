@@ -32,6 +32,5 @@ jobs:
             "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ inputs.service }}\" AND severity>=DEFAULT" \
             --project="${{ secrets.GCP_PROJECT_ID }}" \
             --freshness="$FRESHNESS" \
-            --order=asc \
             --limit=200 \
             --format="table(timestamp, severity, textPayload, jsonPayload.message)"
