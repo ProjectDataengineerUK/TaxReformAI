@@ -30,11 +30,20 @@ jobs:
       - uses: google-github-actions/setup-gcloud@v2
 
       - name: Buscar logs de erro/aviso do serviço
+        env:
+          FRESHNESS: "${{ inputs.minutos }}m"
+          FILTRO_INPUT: ${{ inputs.filtro }}
+          SERVICO: ${{ inputs.service }}
         run: |
-          FRESHNESS="${{ inputs.minutos }}m"
-          FILTRO="${{ inputs.filtro }}"
+          # Achado real: interpolar ${{ inputs.filtro }} DIRETO dentro de
+          # FILTRO="..." quebra o parsing do bash quando o filtro tem aspas
+          # internas (ex: textPayload:"Marking task") — o YAML substitui o
+          # valor cru antes do bash rodar, e as aspas do filtro colidem com
+          # as aspas do FILTRO="...". Passar por env: evita a substituição
+          # textual — o bash lê a variável já pronta, sem re-tokenizar.
+          FILTRO="$FILTRO_INPUT"
           if [ -z "$FILTRO" ]; then
-            FILTRO="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ inputs.service }}\" AND severity>=DEFAULT"
+            FILTRO="resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"$SERVICO\" AND severity>=DEFAULT"
           fi
           gcloud logging read \
             "$FILTRO" \
