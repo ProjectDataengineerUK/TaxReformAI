@@ -80,6 +80,17 @@ jobs:
             --environment="$COMPOSER_ENV" --location="$REGION" \
             | grep ingestion || echo "NENHUM arquivo de ingestion/ encontrado no bucket de DAGs"
 
+      - name: Aguardar sincronizacao dos workers com o GCS
+        run: |
+          # Achado real: a 3a tentativa disparou a DAG segundos depois do
+          # upload de ingestion/ — 'No module named ingestion.config' de
+          # novo, mesmo com os arquivos corretos já no bucket. O scheduler
+          # (checado no próximo passo) e os WORKERS sincronizam a pasta de
+          # DAGs do GCS de forma independente; o scheduler ter "visto" a DAG
+          # não significa que o worker que vai EXECUTAR a task já sincronizou
+          # os módulos novos.
+          sleep 90
+
       - name: Confirmar que a DAG foi descoberta pelo scheduler
         run: |
           set -euo pipefail
