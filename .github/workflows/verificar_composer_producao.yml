@@ -72,8 +72,24 @@ jobs:
 
       - name: Disparar a DAG manualmente
         run: |
-          gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
-            dags -- trigger ingestao_legal_taxreformai
+          set -euo pipefail
+          # Achado real: 'dags -- list' (passo anterior) lista o que o scheduler
+          # já leu do arquivo, mas 'dags -- trigger' exige a linha em DagModel
+          # (metadatastore) — sincronização tem um atraso real de alguns segundos
+          # a mais, mesmo depois da DAG já "aparecer" em list.
+          for _ in $(seq 1 10); do
+            gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
+              dags -- trigger ingestao_legal_taxreformai > /tmp/trigger.log 2>&1 && SAIU=0 || SAIU=$?
+            cat /tmp/trigger.log
+            if [ "$SAIU" -eq 0 ] && ! grep -q "DagNotFound" /tmp/trigger.log; then
+              echo "OK DAG disparada"
+              exit 0
+            fi
+            echo "DagNotFound ainda — aguardando sincronização com o metadatastore..."
+            sleep 15
+          done
+          echo "FALHA: DAG não pôde ser disparada após ~2.5min de retry."
+          exit 1
 
       - name: Aguardar conclusao (polling)
         run: |
