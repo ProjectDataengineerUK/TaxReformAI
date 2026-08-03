@@ -119,7 +119,19 @@ jobs:
               dags -- trigger ingestao_legal_taxreformai > /tmp/trigger.log 2>&1 && SAIU=0 || SAIU=$?
             cat /tmp/trigger.log
             if [ "$SAIU" -eq 0 ] && ! grep -q "DagNotFound" /tmp/trigger.log; then
-              echo "OK DAG disparada"
+              # Achado real: o polling seguinte grepava "success"/"failed" na
+              # tabela INTEIRA de 'list-runs', o que casava com linhas de
+              # tentativas ANTERIORES (já falhas de verdade) e reportava
+              # falso-negativo em segundos, antes de a run atual sequer
+              # começar. Capturamos o run_id desta run específica aqui para
+              # o polling filtrar só a linha dela.
+              RUN_ID=$(grep -oE 'manual__[0-9TZ:+.-]+' /tmp/trigger.log | head -1)
+              if [ -z "$RUN_ID" ]; then
+                echo "FALHA: não consegui extrair o run_id da saída do trigger."
+                exit 1
+              fi
+              echo "$RUN_ID" > /tmp/run_id.txt
+              echo "OK DAG disparada (run_id=$RUN_ID)"
               exit 0
             fi
             echo "DagNotFound ainda — aguardando sincronização com o metadatastore..."
@@ -136,16 +148,21 @@ jobs:
           # (2>/dev/null), o comando errado falhava silenciosamente por 30min
           # sem nenhuma pista. Sem supressão agora, para qualquer novo erro
           # aparecer no log em vez de ficar mudo.
+          RUN_ID=$(cat /tmp/run_id.txt)
+          echo "Acompanhando run_id=$RUN_ID"
           STATUS="running"
           for _ in $(seq 1 60); do
             SAIDA=$(gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
               dags -- list-runs -d ingestao_legal_taxreformai || true)
             echo "$SAIDA"
-            if echo "$SAIDA" | grep -qi "success"; then
+            # Filtra só a linha desta run — grepar a tabela inteira casava
+            # com tentativas antigas (ver achado acima).
+            LINHA=$(echo "$SAIDA" | grep -F "$RUN_ID" || true)
+            if echo "$LINHA" | grep -qi "success"; then
               STATUS="success"
               break
             fi
-            if echo "$SAIDA" | grep -qi "failed"; then
+            if echo "$LINHA" | grep -qi "failed"; then
               STATUS="failed"
               break
             fi
