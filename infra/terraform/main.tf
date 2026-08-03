@@ -83,6 +83,17 @@ resource "google_project_iam_member" "ingestion_composer_worker" {
   depends_on = [google_project_service.composer]
 }
 
+# Achado real da 1a tentativa de apply: a SA de Terraform (GCP_SA_KEY) não tinha
+# `composer.environments.create` — 403 PERMISSION_DENIED ao criar o ambiente.
+# `roles/composer.admin` é a role padrão do Google para isso.
+resource "google_project_iam_member" "terraform_composer_admin" {
+  project = var.project_id
+  role    = "roles/composer.admin"
+  member  = "serviceAccount:${var.terraform_sa_email}"
+
+  depends_on = [google_project_service.composer]
+}
+
 resource "google_composer_environment" "ingestao_legal" {
   project = var.project_id
   name    = "taxreformai-ingestao-legal"
@@ -107,6 +118,7 @@ resource "google_composer_environment" "ingestao_legal" {
   depends_on = [
     google_project_service.composer,
     google_project_iam_member.ingestion_composer_worker,
+    google_project_iam_member.terraform_composer_admin,
   ]
 }
 
