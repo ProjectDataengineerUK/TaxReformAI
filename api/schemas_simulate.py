@@ -28,7 +28,11 @@ class CompradorTipo(StrEnum):
 
 class ItemSimulacao(BaseModel):
     sku: str
-    ncm: str
+    # ERA obrigatório (`str`) — mudança ADITIVA de tipo: todo payload que já
+    # informa `ncm` continua funcionando idênticamente. `None` habilita a
+    # resolução por `sku` cadastrado em `empresa_skus` (API_EMPRESA_SKUS) —
+    # o valor explícito, quando presente, SEMPRE vence sobre o catálogo.
+    ncm: str | None = None
     quantidade: int = Field(gt=0)
     valor_unitario: Decimal = Field(gt=0)
     uf_origem: str
@@ -223,7 +227,11 @@ class ImpostoSeletivoItem(BaseModel):
 
 class ItemDetalhado(BaseModel):
     sku: str
-    ncm: str
+    # ERA obrigatório (`str`) — segue `ItemSimulacao.ncm`: o valor aqui é o
+    # EFETIVO usado no cálculo (payload explícito OU catálogo), `None` só
+    # para item de serviço que nunca teve ncm (nem antes desta feature fazia
+    # sentido, só era exigido por acidente de schema).
+    ncm: str | None
     aliquotas_aplicadas: AliquotasAplicadas
     fundamentacao_legal: str
     # Preenchido nos dois ramos do laço (mercadoria e serviço), nunca por
@@ -233,6 +241,12 @@ class ItemDetalhado(BaseModel):
     # Idem — tributo DIFERENTE (Imposto Seletivo, não CBS/IBS), por isso um
     # bloco próprio, nunca misturado com `reducao`.
     imposto_seletivo: ImpostoSeletivoItem | None = None
+    # True só quando o ncm/nbs USADO no cálculo veio do catálogo
+    # (empresa_skus), não do payload — metadado técnico de origem, não
+    # fundamentação jurídica (por isso booleano, não um bloco com
+    # dispositivo_legal_ref como reducao/imposto_seletivo). Preenchido nos
+    # DOIS ramos, nunca por default silencioso do modelo.
+    sku_resolvido_do_catalogo: bool = False
 
 
 class ResumoFinanceiro(BaseModel):

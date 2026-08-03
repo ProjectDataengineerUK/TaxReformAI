@@ -57,6 +57,14 @@ on:
         options:
           - "sim"
           - "nao"
+      verificar_empresa_skus:
+        description: "Provar que o papel de RUNTIME consegue ESCREVER em empresa_skus com RLS aplicado (criar/consultar/listar/atualizar/upsert/excluir) — primeira feature de CRUD de escrita desde SCHEMA_POSTGRESQL"
+        required: true
+        default: "sim"
+        type: choice
+        options:
+          - "sim"
+          - "nao"
 
 env:
   PYTHONPATH: ${{ github.workspace }}
@@ -208,6 +216,22 @@ jobs:
           PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
           export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
           python scripts/verificar_imposto_seletivo_producao.py
+
+      # Primeira feature do projeto com CRUD de escrita desde SCHEMA_POSTGRESQL
+      # — toda feature anterior só LIA tabela pública de referência. O risco
+      # aqui não é "GRANT faltando degrada em silêncio" (como as verificações
+      # acima), é "RLS de ESCRITA falha e o dado de um tenant vaza/mistura com
+      # o de outro" — por isso o script cria um tenant real e exercita as 6
+      # operações via db/repositorio.py, não SQL ad-hoc. Precisa de DATABASE_URL
+      # (admin, só para criar/apagar o tenant de teste) além de DATABASE_URL_APP
+      # (papel de runtime, que faz todo o CRUD de fato).
+      - name: Verificar escrita em empresa_skus pelo papel de runtime
+        if: ${{ inputs.verificar_empresa_skus == 'sim' }}
+        run: |
+          export DATABASE_URL="postgresql://taxreformai_admin:${PG_ADMIN_PASSWORD}@127.0.0.1:5432/taxreformai"
+          PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/verificar_empresa_skus_producao.py
 
       - name: Encerrar o proxy
         if: always()

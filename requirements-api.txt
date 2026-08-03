@@ -12,6 +12,13 @@ fastapi>=0.115
 uvicorn>=0.30
 pydantic>=2.7
 
+# API_EMPRESA_SKUS: upload de SKUs em CSV (multipart/form-data) — FastAPI
+# exige este pacote para aceitar UploadFile/File(...). Já era instalado como
+# dependência transitiva de algum pacote acima, mas listar explicitamente
+# evita que um bump futuro o remova em silêncio (mesma disciplina de manter
+# esta lista rastreável a partir dos imports reais).
+python-multipart>=0.0.9
+
 # Audit log (seção 7). Pool, não conexão avulsa: o serviço é atingido a cada
 # /simulate e /query, e abrir conexão por requisição contra Cloud SQL soma
 # latência real. [binary] traz o driver C pré-compilado — a imagem

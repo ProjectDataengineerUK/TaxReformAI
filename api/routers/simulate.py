@@ -5,6 +5,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from api.audit import registrar_com_seguranca
 from api.auth import verificar_api_key
 from api.db import get_db_pool
+from api.empresa_skus import (
+    ResolucaoSku,
+    SituacaoResolucaoSku,
+    consultar_skus_com_seguranca,
+    resolver_ncm_nbs_do_item,
+)
 from api.imposto_seletivo import (
     consultar_com_seguranca as consultar_imposto_seletivo_com_seguranca,
 )
@@ -158,6 +164,53 @@ def simular(
     # ser opcional em vez de assumido.
     tributos_regime_vigente_incluidos: set[str] = set()
 
+    # Consulta ZERO, antes de qualquer uma das 4 abaixo: elas dependem do
+    # ncm/nbs EFETIVO (payload explícito OU catálogo empresa_skus), não do
+    # bruto — resolver depois delas deixaria o lote de IPI/redução/IS
+    # calculado com o dado errado para todo item que precisou do catálogo.
+    # Escopada por TENANT (RLS), diferente das 4 seguintes, que são tabelas
+    # públicas (Decisão 2 do DESIGN_API_EMPRESA_SKUS.md).
+    codigos_sku_a_resolver = sorted(
+        {
+            item.sku
+            for item in payload.itens
+            if (item.natureza == "MERCADORIA" and not item.ncm)
+            or (item.natureza == "SERVICO" and not item.nbs)
+        }
+    )
+    consulta_skus = consultar_skus_com_seguranca(db_pool, tenant_id, codigos_sku_a_resolver)
+
+    resolucoes_sku: list[ResolucaoSku] = []
+    for item in payload.itens:
+        resolucao_sku = resolver_ncm_nbs_do_item(
+            item.natureza, item.ncm, item.nbs, item.sku, consulta_skus
+        )
+        # 422 só para MERCADORIA: `ncm` era CAMPO OBRIGATÓRIO antes desta
+        # feature (Pydantic rejeitava a ausência com 422 próprio) — manter o
+        # mesmo status quando o catálogo também não resolve preserva o
+        # comportamento, só troca QUEM recusa. `nbs`, ao contrário, JÁ ERA
+        # opcional (`resolver_item_nbs` sempre tratou `nbs=None` como
+        # NAO_APLICAVEL, nunca erro) — um SERVICO sem nbs continua válido
+        # mesmo que o catálogo não resolva, exatamente como antes desta
+        # feature. Zero regressão (AT-017 do DEFINE).
+        if item.natureza == "MERCADORIA" and resolucao_sku.situacao is SituacaoResolucaoSku.NAO_CADASTRADO:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"SKU {item.sku!r} não cadastrado e ncm ausente do item — "
+                    "cadastre o SKU em POST /v1/tax/skus ou informe ncm explicitamente."
+                ),
+            )
+        if item.natureza == "MERCADORIA" and resolucao_sku.situacao is SituacaoResolucaoSku.CONSULTA_INDISPONIVEL:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+                detail=(
+                    f"Catálogo de SKUs indisponível e item {item.sku!r} não informou "
+                    "ncm — tente novamente ou informe ncm explicitamente."
+                ),
+            )
+        resolucoes_sku.append(resolucao_sku)
+
     # UMA consulta por requisição, antes do laço — não uma por item (Decisão 7).
     # `set` cobre NCMs repetidos (100 itens do mesmo SKU = 1 código); `sorted`
     # deixa a query determinística e comparável em teste. Payload só de
@@ -165,8 +218,8 @@ def simular(
     ncms_consultar = sorted(
         {
             codigo
-            for item in payload.itens
-            if item.natureza == "MERCADORIA" and (codigo := normalizar_ncm(item.ncm))
+            for item, resolucao_sku in zip(payload.itens, resolucoes_sku, strict=True)
+            if item.natureza == "MERCADORIA" and (codigo := normalizar_ncm(resolucao_sku.ncm_efetivo))
         }
     )
     consulta_ipi = consultar_ipi_com_seguranca(db_pool, ncms_consultar)
@@ -185,8 +238,8 @@ def simular(
     prefixos_consultar = sorted(
         {
             prefixo
-            for item in payload.itens
-            if item.natureza == "MERCADORIA" and (codigo := digitos_ncm(item.ncm))
+            for item, resolucao_sku in zip(payload.itens, resolucoes_sku, strict=True)
+            if item.natureza == "MERCADORIA" and (codigo := digitos_ncm(resolucao_sku.ncm_efetivo))
             for prefixo in prefixos_ncm(codigo)
         }
     )
@@ -200,8 +253,9 @@ def simular(
     prefixos_nbs_consultar = sorted(
         {
             prefixo
-            for item in payload.itens
-            if item.natureza == "SERVICO" and (codigo := digitos_nbs(item.nbs or ""))
+            for item, resolucao_sku in zip(payload.itens, resolucoes_sku, strict=True)
+            if item.natureza == "SERVICO"
+            and (codigo := digitos_nbs(resolucao_sku.nbs_efetivo or ""))
             for prefixo in prefixos_nbs(codigo)
         }
     )
@@ -230,7 +284,7 @@ def simular(
     # do CATÁLOGO junto: a ordem de exibição é a da lei, e ela vem do banco.
     anexos_aplicados: set[tuple[int, str]] = set()
 
-    for item in payload.itens:
+    for item, resolucao_sku in zip(payload.itens, resolucoes_sku, strict=True):
         valor_base_item = item.valor_unitario * item.quantidade
         resultado = engine.calcular(valor_base=valor_base_item, ano_operacao=payload.ano_operacao)
 
@@ -239,10 +293,13 @@ def simular(
         # e mercadoria usam vocabulários e trilhas DIFERENTES (NBS x NCM,
         # Achado crítico 4 do /define de ANEXOS_REDUCAO_PERCENTUAL_NBS) — a
         # dispatch por `natureza` é o único ponto de contato entre as duas.
+        # `ncm_efetivo`/`nbs_efetivo`, não `item.ncm`/`item.nbs`, daqui em
+        # diante: já resolvidos do catálogo quando o payload veio sem eles
+        # (API_EMPRESA_SKUS).
         if item.natureza == "SERVICO":
             resolucao = resolver_item_nbs(
                 item.natureza,
-                item.nbs,
+                resolucao_sku.nbs_efetivo,
                 consulta_reducao_nbs,
                 payload.comprador_tipo,
                 item.conteudo_nacional_majoritario,
@@ -250,7 +307,7 @@ def simular(
             )
         else:
             resolucao = resolver_reducao(
-                item.natureza, item.ncm, consulta_reducao, payload.comprador_tipo
+                item.natureza, resolucao_sku.ncm_efetivo, consulta_reducao, payload.comprador_tipo
             )
         reducao_item = ReducaoItem(
             situacao=resolucao.situacao.value,
@@ -335,7 +392,7 @@ def simular(
         elif not resolucao.avaliada:
             itens_nao_avaliados.append(
                 ItemNaoAvaliado(
-                    sku=item.sku, ncm=item.ncm, situacao=resolucao.situacao.value
+                    sku=item.sku, ncm=resolucao_sku.ncm_efetivo, situacao=resolucao.situacao.value
                 )
             )
 
@@ -355,7 +412,7 @@ def simular(
         # (Decisão 1 do DESIGN_ANEXO_XVII_IMPOSTO_SELETIVO_INCIDENCIA.md).
         resolucao_is = resolver_imposto_seletivo(
             item.natureza,
-            item.ncm,
+            resolucao_sku.ncm_efetivo,
             consulta_imposto_seletivo,
             item.embalagem_primaria_consumidor_final,
         )
@@ -370,7 +427,7 @@ def simular(
         itens_detalhados.append(
             ItemDetalhado(
                 sku=item.sku,
-                ncm=item.ncm,
+                ncm=resolucao_sku.ncm_efetivo,
                 aliquotas_aplicadas=AliquotasAplicadas(
                     cbs_percentual=_aliquota_exibida(regra.aliq_cbs, restante),
                     ibs_percentual=_aliquota_exibida(regra.aliq_ibs, restante),
@@ -382,6 +439,9 @@ def simular(
                 fundamentacao_legal=resultado.fonte_legal,
                 reducao=reducao_item,
                 imposto_seletivo=imposto_seletivo_item,
+                sku_resolvido_do_catalogo=(
+                    resolucao_sku.situacao is SituacaoResolucaoSku.RESOLVIDO_CATALOGO
+                ),
             )
         )
 
@@ -471,7 +531,9 @@ def simular(
         # Nome explícito porque o laço agora tem DUAS resoluções por item (a da
         # redução, acima, e esta): reusar `resolucao` faria a segunda sobrescrever
         # a primeira num ponto em que as duas ainda são lidas.
-        resolucao_ipi = resolver_item(item.natureza, item.ncm, valor_base_item, consulta_ipi)
+        resolucao_ipi = resolver_item(
+            item.natureza, resolucao_sku.ncm_efetivo, valor_base_item, consulta_ipi
+        )
         item_regime = item_regime.model_copy(
             update={
                 "ipi_situacao": resolucao_ipi.situacao.value,
@@ -486,7 +548,8 @@ def simular(
             else:
                 ipi_nao_resolvido.append(
                     IpiNaoResolvido(
-                        sku=item.sku, ncm=item.ncm, situacao=resolucao_ipi.situacao.value
+                        sku=item.sku, ncm=resolucao_sku.ncm_efetivo,
+                        situacao=resolucao_ipi.situacao.value,
                     )
                 )
 

@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 from contextlib import contextmanager
 from dataclasses import dataclass
+from datetime import datetime
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -361,6 +362,149 @@ def resolver_tenant(conexao, identificador: str) -> UUID | None:
         )
         linha = cur.fetchone()
     return linha[0] if linha else None
+
+
+@dataclass(frozen=True)
+class SkuCatalogo:
+    id: UUID
+    tenant_id: UUID
+    codigo_sku: str
+    descricao: str
+    natureza: str
+    ncm_code: str | None
+    nbs_code: str | None
+    created_at: datetime
+
+
+def criar_sku(
+    conexao,
+    tenant_id: UUID,
+    codigo_sku: str,
+    descricao: str,
+    natureza: str,
+    ncm_code: str | None,
+    nbs_code: str | None,
+) -> SkuCatalogo:
+    """Levanta psycopg.errors.UniqueViolation em codigo_sku duplicado no mesmo
+    tenant — o router traduz para 409, não esta função."""
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO empresa_skus (tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            RETURNING id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at
+            """,
+            (str(tenant_id), codigo_sku, descricao, natureza, ncm_code, nbs_code),
+        )
+        return SkuCatalogo(*cur.fetchone())
+
+
+def listar_skus(
+    conexao, tenant_id: UUID, pagina: int, tamanho_pagina: int
+) -> tuple[list[SkuCatalogo], int]:
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute("SELECT count(*) FROM empresa_skus")
+        total = cur.fetchone()[0]
+        cur.execute(
+            """
+            SELECT id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at
+            FROM empresa_skus ORDER BY created_at DESC, id LIMIT %s OFFSET %s
+            """,
+            (tamanho_pagina, (pagina - 1) * tamanho_pagina),
+        )
+        itens = [SkuCatalogo(*linha) for linha in cur.fetchall()]
+    return itens, total
+
+
+def buscar_sku(conexao, tenant_id: UUID, codigo_sku: str) -> SkuCatalogo | None:
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            SELECT id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at
+            FROM empresa_skus WHERE codigo_sku = %s
+            """,
+            (codigo_sku,),
+        )
+        linha = cur.fetchone()
+    return SkuCatalogo(*linha) if linha else None
+
+
+def atualizar_sku(
+    conexao,
+    tenant_id: UUID,
+    codigo_sku: str,
+    descricao: str,
+    natureza: str,
+    ncm_code: str | None,
+    nbs_code: str | None,
+) -> SkuCatalogo | None:
+    """Substituição TOTAL das colunas mutáveis — o router monta os valores
+    finais (merge do payload PATCH sobre o registro existente) antes de chamar
+    esta função, para nunca precisar de SQL dinâmico."""
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            UPDATE empresa_skus SET descricao=%s, natureza=%s, ncm_code=%s, nbs_code=%s
+            WHERE codigo_sku=%s
+            RETURNING id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at
+            """,
+            (descricao, natureza, ncm_code, nbs_code, codigo_sku),
+        )
+        linha = cur.fetchone()
+    return SkuCatalogo(*linha) if linha else None
+
+
+def excluir_sku(conexao, tenant_id: UUID, codigo_sku: str) -> bool:
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute("DELETE FROM empresa_skus WHERE codigo_sku=%s", (codigo_sku,))
+        apagado = cur.rowcount > 0
+    return apagado
+
+
+def upsert_sku(
+    conexao,
+    tenant_id: UUID,
+    codigo_sku: str,
+    descricao: str,
+    natureza: str,
+    ncm_code: str | None,
+    nbs_code: str | None,
+) -> tuple[SkuCatalogo, bool]:
+    """`(xmax = 0)` é o truque padrão do Postgres para distinguir INSERT de
+    UPDATE num só INSERT ... ON CONFLICT — evita um SELECT prévio (condição de
+    corrida) só para saber se o SKU já existia."""
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO empresa_skus (tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code)
+            VALUES (%s, %s, %s, %s, %s, %s)
+            ON CONFLICT (tenant_id, codigo_sku) DO UPDATE SET
+                descricao = EXCLUDED.descricao, natureza = EXCLUDED.natureza,
+                ncm_code = EXCLUDED.ncm_code, nbs_code = EXCLUDED.nbs_code
+            RETURNING id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at,
+                      (xmax = 0) AS foi_criado
+            """,
+            (str(tenant_id), codigo_sku, descricao, natureza, ncm_code, nbs_code),
+        )
+        *campos, foi_criado = cur.fetchone()
+    return SkuCatalogo(*campos), foi_criado
+
+
+def buscar_skus_por_codigo(conexao, tenant_id: UUID, codigos_sku: list[str]) -> dict[str, SkuCatalogo]:
+    """Lookup em LOTE, escopado por RLS — consumido por `api/empresa_skus.py`
+    para o wiring de `/v1/tax/simulate`."""
+    if not codigos_sku:
+        return {}
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            SELECT id, tenant_id, codigo_sku, descricao, natureza, ncm_code, nbs_code, created_at
+            FROM empresa_skus WHERE codigo_sku = ANY(%s)
+            """,
+            (list(codigos_sku),),
+        )
+        linhas = cur.fetchall()
+    return {linha[2]: SkuCatalogo(*linha) for linha in linhas}
 
 
 def registrar_parecer(conexao, parecer: ParecerAuditado) -> UUID:
