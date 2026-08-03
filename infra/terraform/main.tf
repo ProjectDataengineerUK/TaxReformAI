@@ -130,6 +130,17 @@ resource "google_project_iam_member" "deployer_cloudsql_client" {
   depends_on = [google_project_service.sqladmin]
 }
 
+# Diagnóstico pós-deploy (LLM_REAL_VERTEX_AI): `gcloud logging read` contra o
+# serviço da API exigiu esta role — sem ela, `PERMISSION_DENIED: Permission
+# denied for all log views`, descoberto na primeira tentativa real de
+# diagnosticar um 503 no smoke test. Só leitura (`roles/logging.viewer`),
+# nenhuma escrita/exclusão de log.
+resource "google_project_iam_member" "deployer_logging_viewer" {
+  project = var.project_id
+  role    = "roles/logging.viewer"
+  member  = "serviceAccount:${google_service_account.deployer_sa.email}"
+}
+
 # Identidade de RUNTIME dos serviços Cloud Run — deliberadamente sem role nenhuma.
 # Nem a API nem o frontend acessam GCP em runtime: servem HTTP e leem env vars
 # (API_KEYS, FRONTEND_ORIGINS). Sem esta SA, o `gcloud run deploy` cai na SA de
