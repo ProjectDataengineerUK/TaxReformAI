@@ -1,0 +1,37 @@
+name: Diagnostico Cloud Run Logs
+
+# Só leitura — busca logs reais do Cloud Run para diagnosticar uma falha já
+# observada (ex: 503 sem corpo no smoke test de deploy.yml). Não builda, não
+# deploya, não gera custo de LLM/Vertex AI. Descartável após o uso.
+on:
+  workflow_dispatch:
+    inputs:
+      service:
+        description: "Nome do serviço Cloud Run"
+        required: true
+        default: "taxreformai-api"
+      minutos:
+        description: "Janela de tempo (minutos atrás) para buscar logs"
+        required: true
+        default: "20"
+
+jobs:
+  logs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_DEPLOYER_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Buscar logs de erro/aviso do serviço
+        run: |
+          FRESHNESS="${{ inputs.minutos }}m"
+          gcloud logging read \
+            "resource.type=\"cloud_run_revision\" AND resource.labels.service_name=\"${{ inputs.service }}\" AND severity>=DEFAULT" \
+            --project="${{ secrets.GCP_PROJECT_ID }}" \
+            --freshness="$FRESHNESS" \
+            --order=asc \
+            --limit=200 \
+            --format="table(timestamp, severity, textPayload, jsonPayload.message)"
