@@ -55,6 +55,61 @@ resource "google_storage_bucket_iam_member" "ingestion_sa_bucket_access" {
   member = "serviceAccount:${google_service_account.ingestion_sa.email}"
 }
 
+# --- Cloud Composer (CLOUD_COMPOSER_PROVISIONAMENTO) — TEMPORÁRIO por desenho ---
+# Ambiente Composer 3 custa de verdade ~US$300-400/mês rodando continuamente (achado
+# do /brainstorm) — desproporcional a uma DAG de 2 tasks/semana
+# (dags/ingestao_legal_dag.py). Ciclo de vida: adicionar estes 3 recursos, aplicar,
+# verificar a DAG rodando de verdade (scripts/verificar_composer_producao.py +
+# .github/workflows/verificar_composer_producao.yml), registrar a evidência, e então
+# REMOVER estes 3 recursos deste arquivo num commit dedicado — o próximo
+# `terraform apply` destrói o ambiente porque ele deixa de existir na configuração
+# declarada. Nunca um recurso permanente.
+#
+# taxreform-ingestion (acima) reaproveitada como SA do ambiente — já existe, já tem
+# acesso ao bucket, nunca teve consumidor real. Composer 3 não exige VPC customizada
+# (diferente de Composer 1/2), mantendo a disciplina "sem VPC" já usada no Cloud SQL.
+
+resource "google_project_service" "composer" {
+  project            = var.project_id
+  service            = "composer.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_project_iam_member" "ingestion_composer_worker" {
+  project = var.project_id
+  role    = "roles/composer.worker"
+  member  = "serviceAccount:${google_service_account.ingestion_sa.email}"
+
+  depends_on = [google_project_service.composer]
+}
+
+resource "google_composer_environment" "ingestao_legal" {
+  project = var.project_id
+  name    = "taxreformai-ingestao-legal"
+  region  = var.region
+
+  config {
+    software_config {
+      image_version = "composer-3-airflow-2"
+      env_variables = {
+        GCP_PROJECT_ID  = var.project_id
+        GCS_BUCKET_NAME = var.bucket_name
+      }
+    }
+
+    environment_size = "ENVIRONMENT_SIZE_SMALL"
+
+    node_config {
+      service_account = google_service_account.ingestion_sa.email
+    }
+  }
+
+  depends_on = [
+    google_project_service.composer,
+    google_project_iam_member.ingestion_composer_worker,
+  ]
+}
+
 output "bucket_url" {
   value = google_storage_bucket.raw_legal_storage.url
 }

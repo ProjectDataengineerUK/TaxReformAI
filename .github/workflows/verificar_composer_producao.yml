@@ -1,0 +1,117 @@
+name: Verificar Composer em Producao
+
+# So faz sentido depois de terraform.yml (action=apply) ter criado o ambiente
+# taxreformai-ingestao-legal — nunca dispara automaticamente, mesmo padrao de
+# guarda explicita dos outros workflows de infraestrutura real.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite exatamente "VERIFICAR" para confirmar'
+        required: true
+        default: ""
+
+env:
+  REGION: southamerica-east1
+  COMPOSER_ENV: taxreformai-ingestao-legal
+  PYTHONPATH: ${{ github.workspace }}
+
+jobs:
+  verificar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guarda de confirmacao
+        if: ${{ inputs.confirm != 'VERIFICAR' }}
+        run: |
+          echo "confirm != 'VERIFICAR'. Nada foi disparado no Composer."
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar qdrant-client
+        run: pip install "qdrant-client>=1.10"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Contar pontos ANTES de disparar a DAG
+        env:
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: python scripts/verificar_composer_producao.py antes
+
+      - name: Copiar a DAG para o ambiente
+        run: |
+          gcloud composer environments storage dags import \
+            --environment="$COMPOSER_ENV" --location="$REGION" \
+            --source=dags/ingestao_legal_dag.py
+
+      - name: Confirmar que a DAG foi descoberta pelo scheduler
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 10); do
+            if gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
+                dags -- list 2>/dev/null | grep -q ingestao_legal_taxreformai; then
+              echo "OK DAG descoberta"
+              exit 0
+            fi
+            echo "Ainda não descoberta, aguardando o scheduler escanear dags/..."
+            sleep 15
+          done
+          echo "FALHA: ingestao_legal_taxreformai não apareceu em 'dags list' após ~2.5min."
+          echo "Provável erro de import — ver logs do scheduler na UI do ambiente."
+          exit 1
+
+      - name: Disparar a DAG manualmente
+        run: |
+          gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
+            dags -- trigger ingestao_legal_taxreformai
+
+      - name: Aguardar conclusao (polling)
+        run: |
+          set -euo pipefail
+          STATUS="running"
+          for _ in $(seq 1 60); do
+            SAIDA=$(gcloud composer environments run "$COMPOSER_ENV" --location="$REGION" \
+              dags -- list_dag_runs -d ingestao_legal_taxreformai 2>/dev/null || true)
+            echo "$SAIDA"
+            if echo "$SAIDA" | grep -qi "success"; then
+              STATUS="success"
+              break
+            fi
+            if echo "$SAIDA" | grep -qi "failed"; then
+              STATUS="failed"
+              break
+            fi
+            sleep 30
+          done
+          echo "status final: $STATUS"
+          if [ "$STATUS" != "success" ]; then
+            echo "FALHA: DAG não concluiu com success (status=$STATUS) dentro do timeout."
+            exit 1
+          fi
+          echo "OK DAG concluida com sucesso"
+
+      - name: Contar pontos DEPOIS e comparar (idempotencia)
+        env:
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+        run: python scripts/verificar_composer_producao.py depois
+
+      - name: Resumo
+        if: always()
+        run: |
+          {
+            echo "### Verificacao real do Cloud Composer"
+            echo ""
+            echo "Ambiente: \`$COMPOSER_ENV\` ($REGION)"
+            echo "DAG: \`ingestao_legal_taxreformai\`"
+          } >> "$GITHUB_STEP_SUMMARY"
