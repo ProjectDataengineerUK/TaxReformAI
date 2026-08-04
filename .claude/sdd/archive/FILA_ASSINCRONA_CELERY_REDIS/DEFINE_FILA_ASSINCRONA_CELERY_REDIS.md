@@ -11,7 +11,7 @@
 | **Feature** | FILA_ASSINCRONA_CELERY_REDIS |
 | **Date** | 2026-08-04 |
 | **Author** | (sessão direta, sem subagentes) |
-| **Status** | Ready for Design |
+| **Status** | ✅ Shipped (2026-08-04) — parcialmente bloqueado, ver SHIPPED_2026-08-04.md |
 | **Clarity Score** | 14/15 |
 
 **Nota de revisão:** o nome da feature preserva o rótulo original do roadmap (`ROADMAP_SEQUENCIA_

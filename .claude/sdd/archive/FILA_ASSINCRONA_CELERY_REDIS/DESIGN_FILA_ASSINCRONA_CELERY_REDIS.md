@@ -11,7 +11,7 @@
 | **Date** | 2026-08-04 |
 | **Author** | (sessão direta, sem subagentes) |
 | **DEFINE** | [DEFINE_FILA_ASSINCRONA_CELERY_REDIS.md](DEFINE_FILA_ASSINCRONA_CELERY_REDIS.md) |
-| **Status** | Ready for Build |
+| **Status** | ✅ Shipped (2026-08-04) — parcialmente bloqueado, ver SHIPPED_2026-08-04.md |
 
 ---
 
