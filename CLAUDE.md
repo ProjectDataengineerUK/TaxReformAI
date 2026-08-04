@@ -74,10 +74,13 @@ O bucket GCS e o Cloud SQL já foram aplicados de verdade; o state do Terraform 
 (`gs://taxreformai-dev-tfstate`).
 
 Próximo ciclo: com a "segunda leva" (posições 12-17), `API_EMPRESA_SKUS`/`LLM_REAL_VERTEX_AI`
-(posições 3-5), `REMOVER_FAKE_HISTORICO` (posição 6, resolvida como efeito colateral) e
-`CLOUD_COMPOSER_PROVISIONAMENTO` (posição 7) completas, seguem as posições 8-11 restantes da
-"primeira leva" (`VERIFICACAO_FRONTEND_NAVEGADOR`, `DIAGNOSTICO_BUSCA_HIBRIDA`,
-`BIGQUERY_DATA_WAREHOUSE`, `FILA_ASSINCRONA_CELERY_REDIS`) —
+(posições 3-5), `REMOVER_FAKE_HISTORICO` (posição 6, resolvida como efeito colateral),
+`CLOUD_COMPOSER_PROVISIONAMENTO` (posição 7) e `DIAGNOSTICO_BUSCA_HIBRIDA` (posição 9, achada
+já resolvida em 2026-08-04 sem ciclo dedicado — o root-cause do "miss" já tinha sido corrigido
+em 2026-07-25, commit `89d44a1`, e reconfirmado por uma run real de `ingestao.yml` de
+2026-07-28) completas, seguem as posições 8, 10 e 11 restantes da "primeira leva"
+(`VERIFICACAO_FRONTEND_NAVEGADOR` — bloqueada agora pela extensão do Chrome desconectada de
+novo —, `BIGQUERY_DATA_WAREHOUSE`, `FILA_ASSINCRONA_CELERY_REDIS`) —
 `ROADMAP_SEQUENCIA_AUDITORIA_2026-07.md`. Verificação manual em navegador ainda pendente, agora
 possível porque há URL pública (a extensão do Chrome não estava conectada nas últimas tentativas).
 **SPED/IBPT** seguem fora de escopo — ver decisão abaixo.
