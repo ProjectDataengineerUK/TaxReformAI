@@ -5,6 +5,13 @@ __pycache__/
 raw/
 *.egg-info/
 
+# Chaves de service account do GCP (JSON) — nunca devem entrar no repo, só
+# no GitHub Secrets. Geradas manualmente via `gcloud iam service-accounts
+# keys create`, nunca por Terraform (ver comentários em main.tf).
+*-sa-key.json
+*-key.json
+gha-creds-*.json
+
 # Terraform
 infra/terraform/.terraform/
 *.tfstate
