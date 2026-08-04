@@ -367,3 +367,87 @@ resource "google_secret_manager_secret_iam_member" "deployer_le_senha_app" {
 output "cloudsql_connection_name" {
   value = google_sql_database_instance.principal.connection_name
 }
+
+# --- BigQuery (BIGQUERY_DATA_WAREHOUSE) — espelho de pareceres_audit_log ---
+# Recurso PERMANENTE, ao contrário do Composer: BigQuery cobra por
+# armazenamento/consulta, não por hora rodando — perfil de custo seguro para
+# manter sempre provisionado.
+
+resource "google_project_service" "bigquery" {
+  project            = var.project_id
+  service            = "bigquery.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_bigquery_dataset" "analytics" {
+  project     = var.project_id
+  dataset_id  = "taxreformai_analytics"
+  location    = var.region
+  description = "Espelho de pareceres_audit_log (Cloud SQL) para consultas analiticas — BIGQUERY_DATA_WAREHOUSE"
+
+  depends_on = [google_project_service.bigquery]
+}
+
+resource "google_bigquery_table" "pareceres_historico" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  table_id   = "pareceres_historico"
+
+  schema = jsonencode([
+    { name = "id", type = "STRING", mode = "REQUIRED" },
+    { name = "tenant_id", type = "STRING", mode = "REQUIRED" },
+    { name = "user_id", type = "STRING", mode = "NULLABLE" },
+    { name = "prompt_consulta", type = "STRING", mode = "REQUIRED" },
+    { name = "contexto_recuperado_ids", type = "JSON", mode = "NULLABLE" },
+    { name = "payload_calculo_json", type = "JSON", mode = "NULLABLE" },
+    { name = "resposta_parecer_md", type = "STRING", mode = "REQUIRED" },
+    { name = "created_at", type = "TIMESTAMP", mode = "REQUIRED" },
+  ])
+}
+
+# SA dedicada e mínima (Decisão 1 do DESIGN) — NÃO reaproveita GCP_SA_KEY. É a
+# primeira feature em que uma credencial ADMIN do Postgres (que ignora RLS por
+# FORCE ROW LEVEL SECURITY não se aplicar a GRANT, só à ausência de policy
+# permissiva) é usada por um job automático, sem clique humano (cron). Dar essa
+# credencial à SA mais poderosa do projeto ampliaria o raio de dano de um
+# comprometimento do cron muito além do necessário.
+resource "google_service_account" "bigquery_sync_sa" {
+  project      = var.project_id
+  account_id   = "taxreformai-bigquery-sync"
+  display_name = "TaxReform AI - Sync Cloud SQL -> BigQuery (cron diario)"
+}
+
+resource "google_project_iam_member" "bigquery_sync_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.bigquery_sync_sa.email}"
+}
+
+# Só a senha do ADMIN (taxreformai_admin) — o sync precisa ler TODOS os
+# tenants via loop de sessao_do_tenant() (Decisão 2 do DESIGN), o que o papel
+# de runtime (taxreformai_app) não permite numa única sessão.
+resource "google_secret_manager_secret_iam_member" "bigquery_sync_le_senha_admin" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.pg_admin_password.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.bigquery_sync_sa.email}"
+}
+
+resource "google_bigquery_dataset_iam_member" "bigquery_sync_data_editor" {
+  project    = var.project_id
+  dataset_id = google_bigquery_dataset.analytics.dataset_id
+  role       = "roles/bigquery.dataEditor"
+  member     = "serviceAccount:${google_service_account.bigquery_sync_sa.email}"
+}
+
+# Sem equivalente escopado a dataset — rodar qualquer job de load/query no
+# BigQuery exige este papel no nível do projeto.
+resource "google_project_iam_member" "bigquery_sync_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.bigquery_sync_sa.email}"
+}
+
+output "bigquery_sync_service_account_email" {
+  value = google_service_account.bigquery_sync_sa.email
+}
