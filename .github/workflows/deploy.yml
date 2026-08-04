@@ -122,10 +122,16 @@ jobs:
           # desta feature a API nunca falava com Vertex AI nem Qdrant
           # (pesquisador_legal era fake), então nenhum dos três existia aqui.
           #
-          # ^@^ troca o separador de "," para "@": o JSON de API_KEYS contém
+          # ^|^ troca o separador de "," para "|": o JSON de API_KEYS contém
           # vírgulas e seria truncado com o separador padrão do gcloud. Todas
           # as variáveis entram no mesmo delimitador — misturar duas flags
           # --set-env-vars não funciona, a última vence sozinha.
+          #
+          # Achado real (FILA_ASSINCRONA_CELERY_REDIS): o delimitador era "@"
+          # até aqui, mas RUNTIME_SA_EMAIL é um e-mail de service account —
+          # contém "@" no próprio VALOR, colidindo com o delimitador e
+          # quebrando o parsing ("Bad syntax for dict arg"). "|" não aparece
+          # em nenhum dos valores atuais (JSON, URLs, e-mails de SA).
           # --memory/--cpu: LLM_REAL_VERTEX_AI — achado real, CONFIRMADO via
           # Cloud Logging (workflow diagnostico_cloud_run_logs.yml) em duas
           # tentativas reais: 512Mi -> "Memory limit of 512 MiB exceeded with
@@ -152,7 +158,7 @@ jobs:
             --quiet \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$CLOUDSQL_CONNECTION_NAME" \
-            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}@DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}@DB_NAME=taxreformai@DB_USER=taxreformai_app@GCP_PROJECT_ID=${GCP_PROJECT_ID}@QDRANT_URL=${QDRANT_URL}@QDRANT_API_KEY=${QDRANT_API_KEY}@RUNTIME_SA_EMAIL=${RUNTIME_SA}@API_BASE_URL=${API_URL_ATUAL}@GCP_REGION=${REGION}@SKU_UPLOAD_STAGING_BUCKET=${GCP_PROJECT_ID}-sku-upload-staging" \
+            --set-env-vars="^|^API_KEYS=${API_KEYS}|FRONTEND_ORIGINS=${ORIGINS}|DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}|DB_NAME=taxreformai|DB_USER=taxreformai_app|GCP_PROJECT_ID=${GCP_PROJECT_ID}|QDRANT_URL=${QDRANT_URL}|QDRANT_API_KEY=${QDRANT_API_KEY}|RUNTIME_SA_EMAIL=${RUNTIME_SA}|API_BASE_URL=${API_URL_ATUAL}|GCP_REGION=${REGION}|SKU_UPLOAD_STAGING_BUCKET=${GCP_PROJECT_ID}-sku-upload-staging" \
             --set-secrets="DB_PASSWORD=taxreformai-pg-app-password:latest"
 
       - name: Resolver URL da API
