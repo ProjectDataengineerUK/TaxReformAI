@@ -33,6 +33,11 @@ jobs:
         run: |
           echo '${{ secrets.GCP_SA_KEY }}' > /tmp/gcp-key.json
           echo "GOOGLE_APPLICATION_CREDENTIALS=/tmp/gcp-key.json" >> "$GITHUB_ENV"
+          # BIGQUERY_DATA_WAREHOUSE: extrai o e-mail da própria SA de
+          # Terraform da chave JSON, para conceder roles/bigquery.dataEditor
+          # a ela mesma via Terraform (achado real: faltava essa role na 1a
+          # tentativa de apply) — nunca hardcoded, sobrevive rotação de chave.
+          echo "TERRAFORM_SA_EMAIL=$(jq -r .client_email /tmp/gcp-key.json)" >> "$GITHUB_ENV"
 
       - name: Terraform Init
         run: terraform init
@@ -42,6 +47,7 @@ jobs:
           terraform plan \
             -var="project_id=${{ secrets.GCP_PROJECT_ID }}" \
             -var="bucket_name=${{ secrets.GCP_PROJECT_ID }}-legal-docs" \
+            -var="terraform_sa_email=${TERRAFORM_SA_EMAIL}" \
             -out=tfplan
 
       - name: Terraform Apply

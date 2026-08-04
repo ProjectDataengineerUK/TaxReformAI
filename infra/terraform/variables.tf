@@ -13,3 +13,14 @@ variable "bucket_name" {
   description = "Nome do bucket GCS de raw storage (globalmente unico)"
   type        = string
 }
+
+# BIGQUERY_DATA_WAREHOUSE — a SA que roda o Terraform (GCP_SA_KEY) não tinha
+# `bigquery.datasets.create` (achado real da 1a tentativa de apply, 403
+# PERMISSION_DENIED). Extraída em runtime do `client_email` da própria chave
+# JSON (terraform.yml), não hardcoded — mesmo mecanismo já usado por
+# CLOUD_COMPOSER_PROVISIONAMENTO (removido junto com os recursos do Composer,
+# reintroduzido aqui para este novo uso legítimo).
+variable "terraform_sa_email" {
+  description = "E-mail da SA que executa o Terraform (extraído de GCP_SA_KEY em runtime)"
+  type        = string
+}

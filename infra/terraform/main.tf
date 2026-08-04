@@ -379,13 +379,26 @@ resource "google_project_service" "bigquery" {
   disable_on_destroy = false
 }
 
+# Achado real da 1a tentativa de apply: a SA de Terraform (GCP_SA_KEY) não
+# tinha `bigquery.datasets.create` — 403 PERMISSION_DENIED ao criar o
+# dataset. `roles/bigquery.dataEditor` no nível do PROJETO é o mínimo que
+# concede criação de dataset (não existe um papel escopado a "ainda não
+# existe" para o próprio dataset que ele vai criar).
+resource "google_project_iam_member" "terraform_bigquery_data_editor" {
+  project = var.project_id
+  role    = "roles/bigquery.dataEditor"
+  member  = "serviceAccount:${var.terraform_sa_email}"
+
+  depends_on = [google_project_service.bigquery]
+}
+
 resource "google_bigquery_dataset" "analytics" {
   project     = var.project_id
   dataset_id  = "taxreformai_analytics"
   location    = var.region
   description = "Espelho de pareceres_audit_log (Cloud SQL) para consultas analiticas — BIGQUERY_DATA_WAREHOUSE"
 
-  depends_on = [google_project_service.bigquery]
+  depends_on = [google_project_service.bigquery, google_project_iam_member.terraform_bigquery_data_editor]
 }
 
 resource "google_bigquery_table" "pareceres_historico" {
