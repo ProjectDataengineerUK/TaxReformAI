@@ -464,3 +464,72 @@ resource "google_project_iam_member" "bigquery_sync_job_user" {
 output "bigquery_sync_service_account_email" {
   value = google_service_account.bigquery_sync_sa.email
 }
+
+# --- Cloud Tasks (FILA_ASSINCRONA_CELERY_REDIS) — upload assíncrono de SKUs ---
+# Nome do roadmap preservado (posição 11); mecanismo real é Cloud Tasks, não
+# Celery/Redis — rejeitado no /brainstorm por exigir VPC + Serverless VPC
+# Access connector (custo real ~US$60-70/mês e o primeiro recurso do projeto
+# a sair da disciplina "sem VPC"). Cloud Tasks + o próprio serviço Cloud Run
+# da API resolvem o mesmo problema sem VPC, sem Redis, sem worker sempre
+# ligado — recursos serverless, reaproveitando taxreformai-runtime (já usado
+# para rodar a API) em vez de criar uma SA nova.
+
+resource "google_project_service" "cloudtasks" {
+  project            = var.project_id
+  service            = "cloudtasks.googleapis.com"
+  disable_on_destroy = false
+}
+
+resource "google_cloud_tasks_queue" "sku_upload" {
+  project  = var.project_id
+  name     = "sku-upload-processamento"
+  location = var.region
+
+  depends_on = [google_project_service.cloudtasks]
+}
+
+# force_destroy=true: bucket de STAGING temporário (lifecycle de 1 dia), não
+# um data lake — diferente do bucket de ingestão legal (force_destroy=false).
+resource "google_storage_bucket" "sku_upload_staging" {
+  project                     = var.project_id
+  name                        = "${var.project_id}-sku-upload-staging"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  force_destroy               = true
+
+  lifecycle_rule {
+    condition {
+      age = 1
+    }
+    action {
+      type = "Delete"
+    }
+  }
+}
+
+resource "google_project_iam_member" "runtime_cloudtasks_enqueuer" {
+  project = var.project_id
+  role    = "roles/cloudtasks.enqueuer"
+  member  = "serviceAccount:${google_service_account.runtime_sa.email}"
+}
+
+# taxreformai-runtime precisa poder gerar um token OIDC EM NOME DELA MESMA
+# para o Cloud Tasks anexar às chamadas de volta — padrão comum quando quem
+# enfileira e quem é invocado são a mesma SA (Decisão 1 do DESIGN, achado
+# ainda não verificado contra um `terraform apply` real — ver A-002 da
+# DEFINE_FILA_ASSINCRONA_CELERY_REDIS.md).
+resource "google_service_account_iam_member" "runtime_actas_self" {
+  service_account_id = google_service_account.runtime_sa.name
+  role               = "roles/iam.serviceAccountUser"
+  member             = "serviceAccount:${google_service_account.runtime_sa.email}"
+}
+
+resource "google_storage_bucket_iam_member" "runtime_sku_staging_admin" {
+  bucket = google_storage_bucket.sku_upload_staging.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${google_service_account.runtime_sa.email}"
+}
+
+output "sku_upload_staging_bucket" {
+  value = google_storage_bucket.sku_upload_staging.name
+}

@@ -100,12 +100,20 @@ jobs:
         env:
           API_KEYS: ${{ secrets.API_KEYS }}
           FRONTEND_URL_ATUAL: ${{ steps.urls.outputs.frontend }}
+          API_URL_ATUAL: ${{ steps.urls.outputs.api }}
           GCP_PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           QDRANT_URL: ${{ secrets.QDRANT_URL }}
           QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
         run: |
           if [ -z "$API_KEYS" ]; then
             echo "Secret API_KEYS ausente. A API subiria devolvendo 401 para tudo."
+            exit 1
+          fi
+          if [ -z "$API_URL_ATUAL" ]; then
+            echo "FALHA: API_BASE_URL vazio — o serviço precisa já existir (bootstrap)."
+            echo "FILA_ASSINCRONA_CELERY_REDIS (Cloud Tasks) exige a própria URL da API"
+            echo "para o audience/target da task, resolvida por 'Resolver URLs existentes'"
+            echo "acima. No 1o deploy do serviço, faça um deploy sem essa dependência antes."
             exit 1
           fi
           ORIGINS="${FRONTEND_URL_ATUAL:-http://localhost:3000}"
@@ -128,6 +136,10 @@ jobs:
           # peso que o container nunca precisou suportar enquanto o nó era
           # fake. 4Gi dá folga real acima do pico observado (~2065MB), não só
           # mais uma margem apertada.
+          # --timeout=1800 (FILA_ASSINCRONA_CELERY_REDIS, Decisão 3 do DESIGN):
+          # o endpoint interno de processamento de upload roda na MESMA API,
+          # e precisa de folga acima do timeout padrão (300s) para 50.000+
+          # linhas — valor a confirmar com um teste real (AT-006).
           gcloud run deploy "$SERVICE_API" \
             --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
             --region="$REGION" \
@@ -136,10 +148,11 @@ jobs:
             --port=8080 \
             --memory=4Gi \
             --cpu=4 \
+            --timeout=1800 \
             --quiet \
             --service-account="$RUNTIME_SA" \
             --add-cloudsql-instances="$CLOUDSQL_CONNECTION_NAME" \
-            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}@DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}@DB_NAME=taxreformai@DB_USER=taxreformai_app@GCP_PROJECT_ID=${GCP_PROJECT_ID}@QDRANT_URL=${QDRANT_URL}@QDRANT_API_KEY=${QDRANT_API_KEY}" \
+            --set-env-vars="^@^API_KEYS=${API_KEYS}@FRONTEND_ORIGINS=${ORIGINS}@DB_INSTANCE_CONNECTION_NAME=${CLOUDSQL_CONNECTION_NAME}@DB_NAME=taxreformai@DB_USER=taxreformai_app@GCP_PROJECT_ID=${GCP_PROJECT_ID}@QDRANT_URL=${QDRANT_URL}@QDRANT_API_KEY=${QDRANT_API_KEY}@RUNTIME_SA_EMAIL=${RUNTIME_SA}@API_BASE_URL=${API_URL_ATUAL}@GCP_REGION=${REGION}@SKU_UPLOAD_STAGING_BUCKET=${GCP_PROJECT_ID}-sku-upload-staging" \
             --set-secrets="DB_PASSWORD=taxreformai-pg-app-password:latest"
 
       - name: Resolver URL da API

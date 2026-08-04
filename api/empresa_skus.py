@@ -149,3 +149,65 @@ def parsear_linha_csv(numero_linha: int, linha: dict[str, str]) -> LinhaCsvValid
         return LinhaCsvValidada(numero_linha, codigo_sku, descricao, natureza, ncm_code, nbs_code, erro)
 
     return LinhaCsvValidada(numero_linha, codigo_sku, descricao, natureza, ncm_code, nbs_code, None)
+
+
+@dataclass(frozen=True)
+class ResultadoProcessamentoUpload:
+    """Espelha `RespostaUploadCsv` (api/schemas_empresa_skus.py) sem importar
+    de lá — evitaria import circular (schemas_empresa_skus já importa DESTE
+    módulo). `to_dict()` é o formato gravado em `sku_upload_jobs.resultado_json`,
+    reconstruído como `RespostaUploadCsv(**dict)` pelo router no GET."""
+
+    total_linhas: int
+    criados: int
+    atualizados: int
+    erros: int
+    resultados: list[dict[str, Any]]
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "total_linhas": self.total_linhas,
+            "criados": self.criados,
+            "atualizados": self.atualizados,
+            "erros": self.erros,
+            "resultados": self.resultados,
+        }
+
+
+def processar_linhas_upload(conexao, tenant_id, linhas: list[dict[str, str]]) -> ResultadoProcessamentoUpload:
+    """Loop de processamento reusado pelo endpoint interno de Cloud Tasks
+    (api/routers/skus_tasks.py) — a MESMA lógica que já era exercitada pelo
+    endpoint síncrono original. Cada linha válida tem sua PRÓPRIA transação
+    (via upsert_sku/sessao_do_tenant): uma falha no meio do arquivo não
+    desfaz as linhas já commitadas antes dela."""
+    from db.repositorio import upsert_sku
+
+    resultados: list[dict[str, Any]] = []
+    criados = atualizados = erros = 0
+
+    for numero, linha in enumerate(linhas, start=1):
+        validada = parsear_linha_csv(numero, linha)
+        if validada.erro:
+            erros += 1
+            resultados.append(
+                {"numero_linha": numero, "codigo_sku": validada.codigo_sku, "situacao": "ERRO", "motivo": validada.erro}
+            )
+            continue
+
+        _sku, foi_criado = upsert_sku(
+            conexao, tenant_id, validada.codigo_sku, validada.descricao,
+            validada.natureza, validada.ncm_code, validada.nbs_code,
+        )
+        if foi_criado:
+            criados += 1
+            situacao = "CRIADO"
+        else:
+            atualizados += 1
+            situacao = "ATUALIZADO"
+        resultados.append(
+            {"numero_linha": numero, "codigo_sku": validada.codigo_sku, "situacao": situacao, "motivo": None}
+        )
+
+    return ResultadoProcessamentoUpload(
+        total_linhas=len(linhas), criados=criados, atualizados=atualizados, erros=erros, resultados=resultados
+    )

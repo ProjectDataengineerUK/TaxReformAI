@@ -1,15 +1,16 @@
 import csv
 import io
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, status
 
 from api.auth import verificar_api_key
 from api.db import get_db_pool
-from api.empresa_skus import parsear_linha_csv
 from api.schemas_empresa_skus import (
-    LinhaUploadResultado,
     PayloadAtualizarSku,
     PayloadCriarSku,
+    RespostaJobCriado,
+    RespostaJobStatus,
     RespostaListaSkus,
     RespostaSku,
     RespostaUploadCsv,
@@ -17,18 +18,17 @@ from api.schemas_empresa_skus import (
 
 router = APIRouter(prefix="/v1/tax/skus", tags=["empresa_skus"])
 
-# Mesmo teto citado no plano Business do blueprint (contexto.md) — acima
-# disso, volumes maiores ficam para a posição 11 do roadmap
-# (FILA_ASSINCRONA_CELERY_REDIS, ainda não construída). Ver Constraint do
-# DEFINE_API_EMPRESA_SKUS.md.
-TETO_LINHAS_UPLOAD = 10_000
+# FILA_ASSINCRONA_CELERY_REDIS: teto revisado para cima (era 10.000/5MB na
+# versão síncrona) — upload agora sempre assíncrono, sustentando a persona de
+# 50.000+ SKUs do blueprint (contexto.md) com folga real, não no limite exato.
+TETO_LINHAS_UPLOAD = 100_000
 
-# Achado do security-reviewer antes do /ship: o teto de LINHAS só se aplica
-# depois de ler e parsear o arquivo inteiro — um arquivo com poucas linhas
-# mas campos enormes (ou uma única linha sem quebra) consumiria memória real
-# antes de qualquer checagem. 5 MB é generoso para 10.000 linhas de um
-# catálogo de SKUs e barra o caso patológico ANTES do parsing.
-TAMANHO_MAXIMO_UPLOAD_BYTES = 5 * 1024 * 1024
+# Achado do security-reviewer antes do /ship de API_EMPRESA_SKUS, ainda válido
+# aqui: o teto de LINHAS só se aplica depois de ler e parsear o arquivo
+# inteiro — um arquivo com poucas linhas mas campos enormes consumiria
+# memória real antes de qualquer checagem. 20 MB é generoso para 100.000
+# linhas de um catálogo de SKUs e barra o caso patológico ANTES do parsing.
+TAMANHO_MAXIMO_UPLOAD_BYTES = 20 * 1024 * 1024
 
 
 def _resolver_tenant_ou_503(conexao, tenant_identificador: str):
@@ -204,27 +204,23 @@ def excluir(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="SKU não encontrado")
 
 
-@router.post("/upload", response_model=RespostaUploadCsv)
+@router.post("/upload", response_model=RespostaJobCriado, status_code=status.HTTP_202_ACCEPTED)
 def upload_csv(
     arquivo: UploadFile,
     tenant_id: str = Depends(verificar_api_key),
     db_pool=Depends(get_db_pool),
-) -> RespostaUploadCsv:
-    """UPSERT por linha (reenviar a mesma planilha atualiza, não quebra) —
-    decisão herdada do /brainstorm, reafirmada no /define. Cada linha válida
-    tem sua PRÓPRIA transação (via upsert_sku/sessao_do_tenant): uma falha de
-    banco no meio do arquivo não desfaz as linhas já commitadas antes dela
-    (Decisão 4 do DESIGN)."""
+) -> RespostaJobCriado:
+    """FILA_ASSINCRONA_CELERY_REDIS: SEMPRE assíncrono, um só caminho de
+    código (Decisão do /brainstorm) — nunca processa a planilha na mesma
+    requisição, mesmo para arquivos pequenos. UPSERT por linha continua
+    valendo (herdado de API_EMPRESA_SKUS), só que agora dentro da task."""
     _exigir_db_pool(db_pool)
 
     bruto = arquivo.file.read(TAMANHO_MAXIMO_UPLOAD_BYTES + 1)
     if len(bruto) > TAMANHO_MAXIMO_UPLOAD_BYTES:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Arquivo maior que o limite de {TAMANHO_MAXIMO_UPLOAD_BYTES} bytes "
-                "desta versão síncrona. Nenhuma linha foi processada."
-            ),
+            detail=f"Arquivo maior que o limite de {TAMANHO_MAXIMO_UPLOAD_BYTES} bytes. Nenhuma linha foi processada.",
         )
     try:
         conteudo = bruto.decode("utf-8-sig")
@@ -240,47 +236,47 @@ def upload_csv(
     if len(linhas) > TETO_LINHAS_UPLOAD:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail=(
-                f"Arquivo tem {len(linhas)} linhas, acima do limite de "
-                f"{TETO_LINHAS_UPLOAD} desta versão síncrona. Nenhuma linha foi processada."
-            ),
+            detail=f"Arquivo tem {len(linhas)} linhas, acima do limite de {TETO_LINHAS_UPLOAD}. Nenhuma linha foi processada.",
         )
 
-    from db.repositorio import upsert_sku
-
-    resultados: list[LinhaUploadResultado] = []
-    criados = atualizados = erros = 0
+    from api.staging_gcs import enviar_para_staging
+    from api.tasks_cloud import criar_task_processamento
+    from db.repositorio import criar_job_upload
 
     with db_pool.connection() as conexao:
         tenant_uuid = _resolver_tenant_ou_503(conexao, tenant_id)
+        gcs_uri = enviar_para_staging(str(tenant_uuid), bruto)
+        job = criar_job_upload(conexao, tenant_uuid, gcs_uri)
 
-        for numero, linha in enumerate(linhas, start=1):
-            validada = parsear_linha_csv(numero, linha)
-            if validada.erro:
-                erros += 1
-                resultados.append(
-                    LinhaUploadResultado(
-                        numero_linha=numero, codigo_sku=validada.codigo_sku,
-                        situacao="ERRO", motivo=validada.erro,
-                    )
-                )
-                continue
+    criar_task_processamento(str(job.id), str(tenant_uuid))
 
-            _sku, foi_criado = upsert_sku(
-                conexao, tenant_uuid, validada.codigo_sku, validada.descricao,
-                validada.natureza, validada.ncm_code, validada.nbs_code,
-            )
-            if foi_criado:
-                criados += 1
-                situacao = "CRIADO"
-            else:
-                atualizados += 1
-                situacao = "ATUALIZADO"
-            resultados.append(
-                LinhaUploadResultado(numero_linha=numero, codigo_sku=validada.codigo_sku, situacao=situacao)
-            )
+    return RespostaJobCriado(job_id=str(job.id))
 
-    return RespostaUploadCsv(
-        total_linhas=len(linhas), criados=criados, atualizados=atualizados, erros=erros,
-        resultados=resultados,
-    )
+
+@router.get("/upload/{job_id}", response_model=RespostaJobStatus)
+def consultar_job_upload(
+    job_id: str,
+    tenant_id: str = Depends(verificar_api_key),
+    db_pool=Depends(get_db_pool),
+) -> RespostaJobStatus:
+    """RLS garante que um `job_id` de outro tenant nunca é visível aqui —
+    mesma disciplina de `consultar` (SKU individual). `job_id` malformado
+    também vira 404 — nunca 500 nem 422 que confirme/negue formato."""
+    _exigir_db_pool(db_pool)
+
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de upload não encontrado") from None
+
+    from db.repositorio import buscar_job_upload
+
+    with db_pool.connection() as conexao:
+        tenant_uuid = _resolver_tenant_ou_503(conexao, tenant_id)
+        job = buscar_job_upload(conexao, tenant_uuid, job_uuid)
+
+    if job is None:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Job de upload não encontrado")
+
+    resultado = RespostaUploadCsv(**job.resultado_json) if job.resultado_json else None
+    return RespostaJobStatus(job_id=str(job.id), status=job.status, resultado=resultado)

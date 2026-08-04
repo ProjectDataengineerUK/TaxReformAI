@@ -507,6 +507,58 @@ def buscar_skus_por_codigo(conexao, tenant_id: UUID, codigos_sku: list[str]) -> 
     return {linha[2]: SkuCatalogo(*linha) for linha in linhas}
 
 
+@dataclass(frozen=True)
+class JobUploadSku:
+    id: UUID
+    tenant_id: UUID
+    status: str
+    gcs_uri_arquivo: str
+    resultado_json: dict[str, Any] | None
+    created_at: datetime
+    updated_at: datetime
+
+
+def criar_job_upload(conexao, tenant_id: UUID, gcs_uri_arquivo: str) -> JobUploadSku:
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            INSERT INTO sku_upload_jobs (tenant_id, gcs_uri_arquivo)
+            VALUES (%s, %s)
+            RETURNING id, tenant_id, status, gcs_uri_arquivo, resultado_json, created_at, updated_at
+            """,
+            (str(tenant_id), gcs_uri_arquivo),
+        )
+        return JobUploadSku(*cur.fetchone())
+
+
+def buscar_job_upload(conexao, tenant_id: UUID, job_id: UUID) -> JobUploadSku | None:
+    """RLS garante que um `job_id` de outro tenant nunca é visível aqui —
+    mesma disciplina de `buscar_sku`."""
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            SELECT id, tenant_id, status, gcs_uri_arquivo, resultado_json, created_at, updated_at
+            FROM sku_upload_jobs WHERE id = %s
+            """,
+            (str(job_id),),
+        )
+        linha = cur.fetchone()
+    return JobUploadSku(*linha) if linha else None
+
+
+def atualizar_job_upload(
+    conexao, tenant_id: UUID, job_id: UUID, status: str, resultado_json: dict[str, Any] | None = None
+) -> None:
+    with sessao_do_tenant(conexao, tenant_id) as cur:
+        cur.execute(
+            """
+            UPDATE sku_upload_jobs SET status=%s, resultado_json=%s::jsonb, updated_at=NOW()
+            WHERE id=%s
+            """,
+            (status, json.dumps(resultado_json) if resultado_json is not None else None, str(job_id)),
+        )
+
+
 def registrar_parecer(conexao, parecer: ParecerAuditado) -> UUID:
     """Grava na trilha de auditoria. É o que sustenta "simulação 100%
     auditável" — sem isto nenhuma resposta emitida pode ser reconstituída."""

@@ -35,8 +35,9 @@ class FakeUniqueViolation(Exception):
 
 
 class FakeCursor:
-    def __init__(self, store: dict):
+    def __init__(self, store: dict, jobs: dict):
         self._store = store
+        self._jobs = jobs
         self._resultado: list[tuple] = []
         self._rowcount = 0
         self._tenant_atual: str | None = None
@@ -110,6 +111,27 @@ class FakeCursor:
                 self._rowcount = 1
             else:
                 self._rowcount = 0
+        elif s.startswith("INSERT INTO sku_upload_jobs"):
+            tenant_id, gcs_uri_arquivo = params
+            job_id = uuid.uuid4()
+            agora = datetime.now(UTC)
+            linha = (job_id, tenant_id, "PENDENTE", gcs_uri_arquivo, None, agora, agora)
+            self._jobs[str(job_id)] = linha
+            self._resultado = [linha]
+        elif s.startswith("SELECT id, tenant_id, status, gcs_uri_arquivo"):
+            job_id = params[0]
+            linha = self._jobs.get(str(job_id))
+            self._resultado = [linha] if linha and linha[1] == self._tenant_atual else []
+        elif s.startswith("UPDATE sku_upload_jobs"):
+            import json as _json
+
+            novo_status, resultado_json, job_id = params
+            antigo = self._jobs.get(str(job_id))
+            if antigo is not None:
+                resultado_parseado = _json.loads(resultado_json) if resultado_json else None
+                self._jobs[str(job_id)] = (
+                    antigo[0], antigo[1], novo_status, antigo[3], resultado_parseado, antigo[5], datetime.now(UTC),
+                )
         else:
             raise AssertionError(f"SQL não simulado pelo fake: {sql!r}")
 
@@ -125,11 +147,12 @@ class FakeCursor:
 
 
 class FakeConexao:
-    def __init__(self, store: dict):
+    def __init__(self, store: dict, jobs: dict):
         self._store = store
+        self._jobs = jobs
 
     def cursor(self):
-        return FakeCursor(self._store)
+        return FakeCursor(self._store, self._jobs)
 
     def commit(self):
         pass
@@ -141,10 +164,11 @@ class FakeConexao:
 class FakePool:
     def __init__(self):
         self.store: dict = {}
+        self.jobs: dict = {}
 
     @contextmanager
     def connection(self):
-        yield FakeConexao(self.store)
+        yield FakeConexao(self.store, self.jobs)
 
 
 @pytest.fixture
@@ -153,7 +177,31 @@ def pool():
 
 
 @pytest.fixture
-def client(pool):
+def client(pool, monkeypatch):
+    """FILA_ASSINCRONA_CELERY_REDIS: GCS (staging) e Cloud Tasks nunca são
+    reais em teste — um dict em memória substitui o bucket, e o disparo da
+    task vira um no-op (os testes que precisam do processamento chamam
+    `/upload/processar-tarefa` diretamente, simulando o Cloud Tasks). A
+    verificação de token OIDC é testada isoladamente em
+    tests/test_fila_assincrona.py — aqui ela sempre "passa", para o teste
+    focar no fluxo de dados, não na autenticação."""
+    staging: dict[str, bytes] = {}
+
+    def _fake_enviar(tenant_id: str, conteudo: bytes) -> str:
+        uri = f"gs://fake-bucket/{tenant_id}/{len(staging)}.csv"
+        staging[uri] = conteudo
+        return uri
+
+    def _fake_baixar(gcs_uri: str) -> bytes:
+        return staging[gcs_uri]
+
+    import api.routers.skus_tasks as skus_tasks_router_mod
+
+    monkeypatch.setattr("api.staging_gcs.enviar_para_staging", _fake_enviar)
+    monkeypatch.setattr("api.staging_gcs.baixar_do_staging", _fake_baixar)
+    monkeypatch.setattr("api.tasks_cloud.criar_task_processamento", lambda job_id, tenant_id: None)
+    monkeypatch.setattr(skus_tasks_router_mod, "verificar_token_oidc", lambda _auth: True)
+
     app.dependency_overrides[get_settings] = lambda: ApiSettings(api_keys_to_tenant={CHAVE: TENANT})
     app.dependency_overrides[get_db_pool] = lambda: pool
     yield TestClient(app)
@@ -294,10 +342,32 @@ def test_at009_excluir_e_consultar_depois_e_404(client):
 
 
 def _upload(client, conteudo: str):
+    """FILA_ASSINCRONA_CELERY_REDIS: upload SEMPRE assíncrono — devolve só
+    `202` + `job_id`. Nunca processa a planilha aqui."""
     return client.post(
         "/v1/tax/skus/upload", headers={"X-API-Key": CHAVE},
         files={"arquivo": ("skus.csv", conteudo, "text/csv")},
     )
+
+
+def _upload_e_processar(client, conteudo: str):
+    """Simula o ciclo completo: POST /upload (enfileira) -> POST
+    /upload/processar-tarefa (o que o Cloud Tasks chamaria de verdade,
+    aqui disparado diretamente pelo teste) -> GET /upload/{job_id}
+    (resultado final). Devolve a resposta do GET, mesmo formato que os
+    testes anteriores (síncronos) esperavam, só que agora sob `resultado`."""
+    resposta_upload = _upload(client, conteudo)
+    assert resposta_upload.status_code == 202
+    job_id = resposta_upload.json()["job_id"]
+
+    resposta_tarefa = client.post(
+        "/v1/tax/skus/upload/processar-tarefa",
+        json={"job_id": job_id, "tenant_id": TENANT},
+        headers={"Authorization": "Bearer fake-token-de-teste"},
+    )
+    assert resposta_tarefa.status_code == 204
+
+    return client.get(f"/v1/tax/skus/upload/{job_id}", headers={"X-API-Key": CHAVE})
 
 
 def test_at010_upload_csv_valido(client):
@@ -307,22 +377,23 @@ def test_at010_upload_csv_valido(client):
         "SKU-B,Produto B,MERCADORIA,22030000,\n"
         "SKU-C,Serviço C,SERVICO,,122010000\n"
     )
-    resposta = _upload(client, csv)
+    resposta = _upload_e_processar(client, csv)
     assert resposta.status_code == 200
     corpo = resposta.json()
-    assert corpo["criados"] == 3
-    assert corpo["erros"] == 0
+    assert corpo["status"] == "CONCLUIDO"
+    assert corpo["resultado"]["criados"] == 3
+    assert corpo["resultado"]["erros"] == 0
 
 
 def test_at011_upload_csv_upsert(client):
     csv1 = "codigo_sku,descricao,natureza,ncm_code,nbs_code\nSKU-A,Original,MERCADORIA,22030000,\n"
-    _upload(client, csv1)
+    _upload_e_processar(client, csv1)
     csv2 = "codigo_sku,descricao,natureza,ncm_code,nbs_code\nSKU-A,Atualizado,MERCADORIA,99999999,\n"
-    resposta = _upload(client, csv2)
+    resposta = _upload_e_processar(client, csv2)
     corpo = resposta.json()
-    assert corpo["atualizados"] == 1
-    assert corpo["criados"] == 0
-    assert corpo["resultados"][0]["situacao"] == "ATUALIZADO"
+    assert corpo["resultado"]["atualizados"] == 1
+    assert corpo["resultado"]["criados"] == 0
+    assert corpo["resultado"]["resultados"][0]["situacao"] == "ATUALIZADO"
 
 
 def test_at012_upload_csv_parcialmente_invalido(client):
@@ -332,13 +403,42 @@ def test_at012_upload_csv_parcialmente_invalido(client):
         "SKU-B,Produto B,MERCADORIA,22030000,\n"
         "SKU-C,Produto C,MERCADORIA,abc,\n"
     )
-    resposta = _upload(client, csv)
+    resposta = _upload_e_processar(client, csv)
     assert resposta.status_code == 200
     corpo = resposta.json()
-    assert corpo["criados"] == 2
-    assert corpo["erros"] == 1
-    assert corpo["resultados"][2]["situacao"] == "ERRO"
-    assert corpo["resultados"][2]["motivo"] is not None
+    assert corpo["resultado"]["criados"] == 2
+    assert corpo["resultado"]["erros"] == 1
+    assert corpo["resultado"]["resultados"][2]["situacao"] == "ERRO"
+    assert corpo["resultado"]["resultados"][2]["motivo"] is not None
+
+
+def test_upload_devolve_202_com_job_id(client):
+    """Contrato novo (FILA_ASSINCRONA_CELERY_REDIS): a resposta imediata do
+    POST nunca carrega resultado — só o job_id."""
+    csv = "codigo_sku,descricao,natureza,ncm_code,nbs_code\nSKU-A,A,MERCADORIA,22030000,\n"
+    resposta = _upload(client, csv)
+    assert resposta.status_code == 202
+    corpo = resposta.json()
+    assert "job_id" in corpo
+    assert "criados" not in corpo
+
+
+def test_job_upload_de_outro_tenant_e_404(client):
+    """AT-004 da DEFINE: isolamento de tenant no polling."""
+    csv = "codigo_sku,descricao,natureza,ncm_code,nbs_code\nSKU-A,A,MERCADORIA,22030000,\n"
+    resposta_upload = _upload(client, csv)
+    job_id = resposta_upload.json()["job_id"]
+
+    app.dependency_overrides[get_settings] = lambda: ApiSettings(
+        api_keys_to_tenant={"outra-chave": "11111111-1111-1111-1111-111111111111"}
+    )
+    resposta = client.get(f"/v1/tax/skus/upload/{job_id}", headers={"X-API-Key": "outra-chave"})
+    assert resposta.status_code == 404
+
+
+def test_job_upload_id_malformado_e_404(client):
+    resposta = client.get("/v1/tax/skus/upload/nao-e-um-uuid", headers={"X-API-Key": CHAVE})
+    assert resposta.status_code == 404
 
 
 def test_at013_upload_csv_acima_do_teto_e_422(client, monkeypatch):

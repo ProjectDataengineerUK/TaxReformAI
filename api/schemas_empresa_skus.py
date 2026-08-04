@@ -102,3 +102,20 @@ class RespostaUploadCsv(BaseModel):
     atualizados: int
     erros: int
     resultados: list[LinhaUploadResultado]
+
+
+class RespostaJobCriado(BaseModel):
+    """Resposta síncrona de `POST /upload` — sempre imediata, nunca carrega
+    resultado (FILA_ASSINCRONA_CELERY_REDIS: upload sempre assíncrono)."""
+
+    job_id: str
+    status: str = "PENDENTE"
+
+
+class RespostaJobStatus(BaseModel):
+    """Resposta de `GET /upload/{job_id}` — `resultado` só preenchido quando
+    `status` já é CONCLUIDO ou ERRO."""
+
+    job_id: str
+    status: str
+    resultado: RespostaUploadCsv | None = None
