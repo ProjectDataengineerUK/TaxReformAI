@@ -506,6 +506,59 @@ jobs:
           curl -sS -o /dev/null --max-time 20 -X DELETE "${API_URL}/v1/tax/skus/SMOKE-SKU-1" -H "X-API-Key: ${CHAVE}"
           echo "OK catálogo de SKUs (criar, consultar, excluir)"
 
+          # E2E de FILA_ASSINCRONA_CELERY_REDIS: upload SEMPRE assíncrono —
+          # 202 imediato, depois polling real até o Cloud Tasks disparar o
+          # endpoint interno e concluir. AT-002/AT-003 do DEFINE.
+          CSV_SMOKE=$'codigo_sku,descricao,natureza,ncm_code,nbs_code\nSMOKE-UPLOAD-1,SKU de smoke test do upload,MERCADORIA,22030000,\n'
+          HTTP=$(curl -sS -o /tmp/upload.json -w '%{http_code}' --max-time 20 \
+            -X POST "${API_URL}/v1/tax/skus/upload" \
+            -H "X-API-Key: ${CHAVE}" \
+            -F "arquivo=@-;filename=smoke.csv;type=text/csv" <<< "$CSV_SMOKE")
+          if [ "$HTTP" != "202" ]; then
+            echo "FALHA: POST /v1/tax/skus/upload devolveu $HTTP (esperado 202)."
+            cat /tmp/upload.json
+            exit 1
+          fi
+          JOB_ID=$(jq -r '.job_id' /tmp/upload.json)
+          echo "OK upload sempre assíncrono (job_id=$JOB_ID)"
+
+          JOB_STATUS="PENDENTE"
+          for _ in $(seq 1 20); do
+            HTTP=$(curl -sS -o /tmp/job.json -w '%{http_code}' --max-time 20 \
+              -X GET "${API_URL}/v1/tax/skus/upload/${JOB_ID}" -H "X-API-Key: ${CHAVE}")
+            JOB_STATUS=$(jq -r '.status' /tmp/job.json)
+            if [ "$JOB_STATUS" = "CONCLUIDO" ] || [ "$JOB_STATUS" = "ERRO" ]; then
+              break
+            fi
+            sleep 3
+          done
+          if [ "$JOB_STATUS" != "CONCLUIDO" ]; then
+            echo "FALHA: job de upload não concluiu (status final=$JOB_STATUS) dentro do timeout do smoke test."
+            cat /tmp/job.json
+            exit 1
+          fi
+          CRIADOS=$(jq -r '.resultado.criados' /tmp/job.json)
+          if [ "$CRIADOS" != "1" ]; then
+            echo "FALHA: job concluído mas resultado.criados=$CRIADOS (esperado 1)."
+            cat /tmp/job.json
+            exit 1
+          fi
+          curl -sS -o /dev/null --max-time 20 -X DELETE "${API_URL}/v1/tax/skus/SMOKE-UPLOAD-1" -H "X-API-Key: ${CHAVE}"
+          echo "OK upload processado via Cloud Tasks (criados=$CRIADOS)"
+
+          # AT-005 do DEFINE: o endpoint interno rejeita qualquer chamada sem
+          # o token OIDC do Cloud Tasks — mesmo com o serviço inteiro em
+          # --allow-unauthenticated (Decisão 1 do DESIGN).
+          HTTP=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 20 \
+            -X POST "${API_URL}/v1/tax/skus/upload/processar-tarefa" \
+            -H 'Content-Type: application/json' \
+            -d "{\"job_id\":\"${JOB_ID}\",\"tenant_id\":\"${TENANT}\"}")
+          if [ "$HTTP" != "401" ]; then
+            echo "FALHA: endpoint interno sem token OIDC devolveu $HTTP (esperado 401)."
+            exit 1
+          fi
+          echo "OK endpoint interno rejeita chamada sem token OIDC"
+
           # E2E de LLM_REAL_VERTEX_AI: 1 chamada real a /v1/tax/query exercita,
           # numa tacada só, os 3 nós que passaram a chamar o Vertex AI de
           # verdade (classificador/Haiku, extrator_regras/Sonnet,
