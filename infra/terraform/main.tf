@@ -480,12 +480,23 @@ resource "google_project_service" "cloudtasks" {
   disable_on_destroy = false
 }
 
+# Achado real da 1a tentativa de apply: a SA de Terraform (GCP_SA_KEY) não
+# tinha `cloudtasks.queues.create` — 403 PERMISSION_DENIED ao criar a fila.
+# `roles/cloudtasks.admin` é a role padrão do Google para isso.
+resource "google_project_iam_member" "terraform_cloudtasks_admin" {
+  project = var.project_id
+  role    = "roles/cloudtasks.admin"
+  member  = "serviceAccount:${var.terraform_sa_email}"
+
+  depends_on = [google_project_service.cloudtasks]
+}
+
 resource "google_cloud_tasks_queue" "sku_upload" {
   project  = var.project_id
   name     = "sku-upload-processamento"
   location = var.region
 
-  depends_on = [google_project_service.cloudtasks]
+  depends_on = [google_project_service.cloudtasks, google_project_iam_member.terraform_cloudtasks_admin]
 }
 
 # force_destroy=true: bucket de STAGING temporário (lifecycle de 1 dia), não
