@@ -11,7 +11,7 @@
 | **Feature** | CLOUD_COMPOSER_PROVISIONAMENTO |
 | **Date** | 2026-08-03 |
 | **Author** | define-agent |
-| **Status** | Ready for Design |
+| **Status** | ✅ Shipped (2026-08-04) — ver SHIPPED_2026-08-04.md |
 | **Clarity Score** | 14/15 |
 
 ---

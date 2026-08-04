@@ -10,7 +10,7 @@
 | **Date** | 2026-08-03 |
 | **Author** | design-agent |
 | **DEFINE** | [DEFINE_CLOUD_COMPOSER_PROVISIONAMENTO.md](./DEFINE_CLOUD_COMPOSER_PROVISIONAMENTO.md) |
-| **Status** | Ready for Build |
+| **Status** | ✅ Shipped (2026-08-04) — ver SHIPPED_2026-08-04.md |
 
 ---
 
