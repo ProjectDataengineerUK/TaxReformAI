@@ -18,17 +18,27 @@ from api.schemas_empresa_skus import (
 
 router = APIRouter(prefix="/v1/tax/skus", tags=["empresa_skus"])
 
-# FILA_ASSINCRONA_CELERY_REDIS: teto revisado para cima (era 10.000/5MB na
-# versão síncrona) — upload agora sempre assíncrono, sustentando a persona de
-# 50.000+ SKUs do blueprint (contexto.md) com folga real, não no limite exato.
-TETO_LINHAS_UPLOAD = 100_000
+# FILA_ASSINCRONA_CELERY_REDIS: teto MANTIDO em 10.000 (igual à versão
+# síncrona), NÃO os 100.000 originalmente planejados. Achado real do /build:
+# um upload de 55.000 linhas foi tentado 2x contra a API real e falhou das
+# duas vezes, por causas DIFERENTES — (1) OOM do container (Memory limit of
+# 4096 MiB exceeded), corrigido subindo a memória para 8Gi; (2) mesmo com
+# 8Gi, psycopg_pool.PoolTimeout ("couldn't get a connection after 30.00
+# sec") sob carga sustentada de ~55.000 transações individuais (uma por
+# linha) contra a instância db-f1-micro do Cloud SQL — a menor, mais barata,
+# e o gargalo real não é memória, é vazão do banco. A meta de "50.000+ SKUs"
+# do blueprint (persona de grandes varejistas) NÃO foi alcançada com
+# segurança nesta feature — fica documentada como trabalho futuro real
+# (particionar o upload em múltiplas Cloud Tasks menores, não mais opcional)
+# em vez de reivindicada sem prova. O upload SEGUE sempre assíncrono
+# (não bloqueia mais o cliente) — esse ganho é real, só o teto não subiu.
+TETO_LINHAS_UPLOAD = 10_000
 
 # Achado do security-reviewer antes do /ship de API_EMPRESA_SKUS, ainda válido
 # aqui: o teto de LINHAS só se aplica depois de ler e parsear o arquivo
 # inteiro — um arquivo com poucas linhas mas campos enormes consumiria
-# memória real antes de qualquer checagem. 20 MB é generoso para 100.000
-# linhas de um catálogo de SKUs e barra o caso patológico ANTES do parsing.
-TAMANHO_MAXIMO_UPLOAD_BYTES = 20 * 1024 * 1024
+# memória real antes de qualquer checagem.
+TAMANHO_MAXIMO_UPLOAD_BYTES = 5 * 1024 * 1024
 
 
 def _resolver_tenant_ou_503(conexao, tenant_identificador: str):
