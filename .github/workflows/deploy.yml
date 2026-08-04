@@ -140,19 +140,26 @@ jobs:
           # de verdade na primeira request real, carregando o modelo ONNX
           # multilingual-e5-large (~560M parâmetros) + o modelo esparso BM25 —
           # peso que o container nunca precisou suportar enquanto o nó era
-          # fake. 4Gi dá folga real acima do pico observado (~2065MB), não só
-          # mais uma margem apertada.
-          # --timeout=1800 (FILA_ASSINCRONA_CELERY_REDIS, Decisão 3 do DESIGN):
-          # o endpoint interno de processamento de upload roda na MESMA API,
-          # e precisa de folga acima do timeout padrão (300s) para 50.000+
-          # linhas — valor a confirmar com um teste real (AT-006).
+          # fake.
+          #
+          # 4Gi -> 8Gi (achado real de FILA_ASSINCRONA_CELERY_REDIS): um
+          # upload real de 55.000 linhas OOMou o MESMO container
+          # ("Memory limit of 4096 MiB exceeded with 4139 MiB used"),
+          # confirmado via diagnostico_cloud_run_logs.yml — o SIGKILL do OOM
+          # nunca chega ao `except` do endpoint interno, deixando o job preso
+          # em PROCESSANDO para sempre. Instâncias quentes do MESMO container
+          # já carregam o modelo de embedding (~2GB) de chamadas anteriores a
+          # /v1/tax/query — a memória do processamento de upload se soma em
+          # cima disso, não substitui.
+          # --timeout=1800 (Decisão 3 do DESIGN): folga acima do timeout
+          # padrão (300s) para 50.000+ linhas.
           gcloud run deploy "$SERVICE_API" \
             --image="${IMAGE_REPO}/api:${GITHUB_SHA}" \
             --region="$REGION" \
             --platform=managed \
             --allow-unauthenticated \
             --port=8080 \
-            --memory=4Gi \
+            --memory=8Gi \
             --cpu=4 \
             --timeout=1800 \
             --quiet \
