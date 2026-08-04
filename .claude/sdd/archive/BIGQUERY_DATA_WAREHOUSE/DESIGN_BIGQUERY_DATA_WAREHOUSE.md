@@ -11,7 +11,7 @@
 | **Date** | 2026-08-04 |
 | **Author** | (sessão direta, sem subagentes) |
 | **DEFINE** | [DEFINE_BIGQUERY_DATA_WAREHOUSE.md](DEFINE_BIGQUERY_DATA_WAREHOUSE.md) |
-| **Status** | Ready for Build |
+| **Status** | ✅ Shipped (2026-08-04) — ver SHIPPED_2026-08-04.md |
 
 ---
 

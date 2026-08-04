@@ -11,7 +11,7 @@
 | **Feature** | BIGQUERY_DATA_WAREHOUSE |
 | **Date** | 2026-08-04 |
 | **Author** | (sessão direta, sem subagentes) |
-| **Status** | Ready for Design |
+| **Status** | ✅ Shipped (2026-08-04) — ver SHIPPED_2026-08-04.md |
 | **Clarity Score** | 14/15 |
 
 ---
