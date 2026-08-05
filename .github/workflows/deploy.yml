@@ -589,7 +589,17 @@ jobs:
           # sintetizador/Sonnet) e a busca híbrida real do pesquisador_legal
           # no Qdrant — minimiza o número de chamadas reais cobráveis por
           # verificação (DEFINE, Constraints). Gera custo real de token.
-          HTTP=$(curl -sS -o /tmp/query.json -w '%{http_code}' --max-time 60 \
+          #
+          # --max-time 120 (não 60): achado real de 2026-08-05 — a primeira
+          # vez que este endpoint chegou de fato a um LLM real (contorno de
+          # quota via LLM_CLAUDE_API_DIRETA) revelou que uma instância fria do
+          # Cloud Run soma o cold start do embedder (fastembed baixa o modelo
+          # multilingual-e5-large, ~35-50s sozinho) com 3 chamadas sequenciais
+          # reais à API Claude — o total passa dos 60s, e o smoke test
+          # desistia (curl exit 28) antes do servidor responder, mesmo quando
+          # a resposta final era 200. Instâncias já aquecidas respondem em
+          # ~15-20s; só a primeira chamada após um deploy paga esse custo.
+          HTTP=$(curl -sS -o /tmp/query.json -w '%{http_code}' --max-time 120 \
             -X POST "${API_URL}/v1/tax/query" \
             -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
             -d "{\"tenant_id\":\"${TENANT}\",\"texto_consulta\":\"Quanto de CBS incide sobre uma venda de R\$ 1000,00 em 2026?\",
