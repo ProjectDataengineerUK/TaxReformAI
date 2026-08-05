@@ -218,16 +218,19 @@ jobs:
       # address do servidor Node (http://0.0.0.0:8080, visível nos logs),
       # que diverge do redirect_uri já usado (e registrado no Google Cloud
       # Console) na etapa de autorização. AUTH_URL fixa o valor canônico.
-      # FRONTEND_API_KEY — achado real de 2026-08-05, pedido direto do
-      # usuário: antes, todo usuário logado (via Google) ainda precisava
-      # colar manualmente a mesma chave que já mora em API_KEYS (secret da
-      # API). app/api/api-key/route.ts agora serve essa chave automaticamente
-      # para quem já tem sessão válida — mas só se FRONTEND_API_KEY existir
-      # como secret PRÓPRIO do frontend (não deriva de API_KEYS: o valor
-      # precisa ser escolhido igual a UMA das chaves já cadastradas em
-      # API_KEYS, decisão do usuário, nunca automática). Sem o secret, o
-      # endpoint devolve 503 e o frontend cai de volta no fluxo manual
-      # (ApiKeyBar) — nunca quebra o login nem a UI.
+      # FRONTEND_API_KEY / FRONTEND_TENANT_ID — achado real de 2026-08-05,
+      # pedido direto do usuário: antes, todo usuário logado (via Google)
+      # ainda precisava colar manualmente a mesma chave que já mora em
+      # API_KEYS (secret da API). app/api/api-key/route.ts agora serve essa
+      # chave (e o tenant_id correspondente — /v1/tax/simulate reprova com
+      # 403 se o tenant_id do corpo não bater com o da API key, achado
+      # seguinte no mesmo dia: SimuladorForm mandava um "frontend-demo" fixo)
+      # automaticamente para quem já tem sessão válida — mas só se as duas
+      # env vars existirem como secrets PRÓPRIOS do frontend (não derivam de
+      # API_KEYS: os valores precisam ser escolhidos iguais ao MESMO par já
+      # cadastrado em API_KEYS, decisão do usuário, nunca automática). Sem
+      # qualquer uma delas, o endpoint devolve 503 e o frontend cai de volta
+      # no fluxo manual (ApiKeyBar) — nunca quebra o login nem a UI.
       - name: Deploy do frontend
         if: ${{ inputs.target == 'frontend' || inputs.target == 'both' }}
         env:
@@ -237,13 +240,14 @@ jobs:
           ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
           AUTH_URL_VALOR: ${{ steps.urls.outputs.frontend }}
           FRONTEND_API_KEY: ${{ secrets.FRONTEND_API_KEY }}
+          FRONTEND_TENANT_ID: ${{ secrets.FRONTEND_TENANT_ID }}
         run: |
           if [ -z "$AUTH_URL_VALOR" ]; then
             echo "Nenhuma URL de frontend existente resolvida — 1º deploy do serviço."
             echo "AUTH_URL ficará correta só a partir do 2º deploy (URL do Cloud Run é estável)."
           fi
-          if [ -z "$FRONTEND_API_KEY" ]; then
-            echo "Secret FRONTEND_API_KEY ausente — usuários logados continuarão colando a chave manualmente."
+          if [ -z "$FRONTEND_API_KEY" ] || [ -z "$FRONTEND_TENANT_ID" ]; then
+            echo "Secret FRONTEND_API_KEY e/ou FRONTEND_TENANT_ID ausente — usuários logados continuarão colando a chave manualmente."
           fi
           gcloud run deploy "$SERVICE_FRONTEND" \
             --image="${IMAGE_REPO}/frontend:${GITHUB_SHA}" \
@@ -253,7 +257,7 @@ jobs:
             --port=8080 \
             --quiet \
             --service-account="$RUNTIME_SA" \
-            --set-env-vars="^|^AUTH_SECRET=${AUTH_SECRET}|AUTH_GOOGLE_ID=${GOOGLE_OAUTH_CLIENT_ID}|AUTH_GOOGLE_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}|ALLOWED_EMAILS=${ALLOWED_EMAILS}|AUTH_TRUST_HOST=true|AUTH_URL=${AUTH_URL_VALOR}|FRONTEND_API_KEY=${FRONTEND_API_KEY}"
+            --set-env-vars="^|^AUTH_SECRET=${AUTH_SECRET}|AUTH_GOOGLE_ID=${GOOGLE_OAUTH_CLIENT_ID}|AUTH_GOOGLE_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}|ALLOWED_EMAILS=${ALLOWED_EMAILS}|AUTH_TRUST_HOST=true|AUTH_URL=${AUTH_URL_VALOR}|FRONTEND_API_KEY=${FRONTEND_API_KEY}|FRONTEND_TENANT_ID=${FRONTEND_TENANT_ID}"
 
       - name: Resolver URL do frontend
         id: frontend_url

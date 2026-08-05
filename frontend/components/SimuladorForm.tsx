@@ -19,9 +19,11 @@ const ITEM_VAZIO: ItemSimulacao = {
 export function SimuladorForm({
   onSubmit,
   isPending,
+  tenantId,
 }: {
   onSubmit: (payload: PayloadSimulacao) => void;
   isPending: boolean;
+  tenantId: string;
 }) {
   const [anoOperacao, setAnoOperacao] = useState(2026);
   const [itens, setItens] = useState<ItemSimulacao[]>([{ ...ITEM_VAZIO }]);
@@ -43,7 +45,7 @@ export function SimuladorForm({
   function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     onSubmit({
-      tenant_id: "frontend-demo",
+      tenant_id: tenantId,
       ano_operacao: anoOperacao,
       operacao_tipo: "VENDA_ESTADUAL_B2B",
       itens,

@@ -73,4 +73,39 @@ describe("SimuladorPage", () => {
       expect(screen.getByRole("alert")).toHaveTextContent(/configure-a acima/i),
     );
   });
+
+  it("AT-003: usa o tenant_id real do auto-fetch, não mais um valor fixo — achado real: 'frontend-demo' hardcoded divergia da API key e /v1/tax/simulate reprovava com 403", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: true,
+        status: 200,
+        json: async () => ({ apiKey: "chave-real", tenantId: "minha-empresa" }),
+      }),
+    );
+
+    const respostaFake: RespostaSimulacao = {
+      status: "SUCCESS",
+      ano_operacao: 2026,
+      resumo_financeiro: {
+        valor_bruto_total: "1000.00",
+        total_cbs: "9.00",
+        total_ibs: "1.00",
+        total_is: "0.00",
+        valor_liquido_projetado_split_payment: "990.00",
+      },
+      itens_detalhados: [],
+    };
+    vi.mocked(apiPost).mockResolvedValueOnce(respostaFake);
+
+    renderComQueryClient();
+    await waitFor(() => expect(vi.mocked(fetch)).toHaveBeenCalledWith("/api/api-key"));
+    await userEvent.click(screen.getByRole("button", { name: /simular/i }));
+
+    await waitFor(() => expect(apiPost).toHaveBeenCalled());
+    const payload = vi.mocked(apiPost).mock.calls[0][1] as { tenant_id: string };
+    expect(payload.tenant_id).toBe("minha-empresa");
+
+    vi.unstubAllGlobals();
+  });
 });

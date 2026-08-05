@@ -51,21 +51,31 @@ describe("useApiKey", () => {
     await waitFor(() => expect(result.current.apiKey).toBe("chave-existente"));
   });
 
-  it("busca a chave automaticamente de /api/api-key quando disponível (usuário logado)", async () => {
+  it("busca a chave e o tenant automaticamente de /api/api-key quando disponível (usuário logado)", async () => {
     vi.stubGlobal(
       "fetch",
       vi.fn().mockResolvedValue({
         ok: true,
         status: 200,
-        json: async () => ({ apiKey: "chave-automatica-via-login" }),
+        json: async () => ({ apiKey: "chave-automatica-via-login", tenantId: "minha-empresa" }),
       }),
     );
     window.localStorage.setItem("taxreform:api-key", "chave-manual-antiga");
 
     const { result } = renderHook(() => useApiKey(), { wrapper });
 
-    // A chave automática vence a manual antiga guardada localmente.
+    // A chave/tenant automáticos vencem a chave manual antiga guardada
+    // localmente — achado real: "frontend-demo" fixo no formulário divergia
+    // do tenant real da chave, e /v1/tax/simulate reprovava com 403.
     await waitFor(() => expect(result.current.apiKey).toBe("chave-automatica-via-login"));
+    expect(result.current.tenantId).toBe("minha-empresa");
+  });
+
+  it("mantém o tenant placeholder quando o auto-fetch falha (fallback manual)", async () => {
+    const { result } = renderHook(() => useApiKey(), { wrapper });
+
+    await waitFor(() => expect(result.current.apiKey).toBe(""));
+    expect(result.current.tenantId).toBe("frontend-demo");
   });
 
   it("sincroniza a chave entre dois consumidores diferentes sem reload — achado real: ApiKeyBar salvava, o formulário nunca via a chave nova", async () => {

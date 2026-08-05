@@ -3,9 +3,14 @@
 import { createContext, useCallback, useContext, useEffect, useState } from "react";
 
 const STORAGE_KEY = "taxreform:api-key";
+// Placeholder de dev local/manual — nunca usado quando o auto-fetch de
+// /api/api-key funciona (ver achado abaixo). Sem UI para o usuário digitar
+// um tenant manualmente, mantém o valor histórico do fallback.
+const TENANT_FALLBACK = "frontend-demo";
 
 interface ApiKeyContextValue {
   apiKey: string;
+  tenantId: string;
   setApiKey: (value: string) => void;
 }
 
@@ -13,24 +18,28 @@ const ApiKeyContext = createContext<ApiKeyContextValue | null>(null);
 
 export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
   const [apiKey, setApiKeyState] = useState<string>("");
+  const [tenantId, setTenantId] = useState<string>(TENANT_FALLBACK);
 
   useEffect(() => {
     let cancelado = false;
 
     // Achado real (2026-08-05): a chave deixa de ser 100% manual — um
     // usuário com sessão válida (login Google, mesma allowlist que já
-    // protege /simulador e /consulta via middleware) recebe a chave
-    // automaticamente de um endpoint interno server-side
-    // (app/api/api-key/route.ts), que nunca expõe FRONTEND_API_KEY ao
-    // navegador. localStorage continua como fallback manual — sem sessão
-    // (página pública/login), sem FRONTEND_API_KEY configurada (dev local),
-    // ou rede indisponível, cai para o fluxo antigo via ApiKeyBar.
+    // protege /simulador e /consulta via middleware) recebe a chave (e o
+    // tenant_id correspondente — /v1/tax/simulate reprova com 403 se o
+    // tenant_id do corpo não bater com o da API key) automaticamente de um
+    // endpoint interno server-side (app/api/api-key/route.ts), que nunca
+    // expõe FRONTEND_API_KEY/FRONTEND_TENANT_ID ao navegador. localStorage
+    // continua como fallback manual — sem sessão (página pública/login),
+    // sem as env vars configuradas (dev local), ou rede indisponível, cai
+    // para o fluxo antigo via ApiKeyBar (tenant_id fica no placeholder).
     async function carregar() {
       try {
         const resposta = await fetch("/api/api-key");
         if (!cancelado && resposta.ok) {
-          const dados = (await resposta.json()) as { apiKey: string };
+          const dados = (await resposta.json()) as { apiKey: string; tenantId: string };
           setApiKeyState(dados.apiKey);
+          setTenantId(dados.tenantId);
           return;
         }
       } catch {
@@ -55,7 +64,11 @@ export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
     setApiKeyState(value);
   }, []);
 
-  return <ApiKeyContext.Provider value={{ apiKey, setApiKey }}>{children}</ApiKeyContext.Provider>;
+  return (
+    <ApiKeyContext.Provider value={{ apiKey, tenantId, setApiKey }}>
+      {children}
+    </ApiKeyContext.Provider>
+  );
 }
 
 export function useApiKey(): ApiKeyContextValue {
