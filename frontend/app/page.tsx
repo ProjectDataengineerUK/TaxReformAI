@@ -1,5 +1,6 @@
 import Link from "next/link";
 
+import { ArquiteturaDiagrama } from "@/components/ArquiteturaDiagrama";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const RECURSOS = [
@@ -52,6 +53,22 @@ export default function LandingPage() {
             </CardContent>
           </Card>
         ))}
+      </section>
+
+      <section className="grid gap-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-2xl font-bold text-foreground">Como funciona por dentro</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Nenhum número sai de uma estimativa de modelo de linguagem. O cálculo é sempre
+            determinístico; a orquestração com IA existe só para conversar e citar a legislação
+            certa — nunca para decidir uma alíquota.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="overflow-x-auto pt-4">
+            <ArquiteturaDiagrama />
+          </CardContent>
+        </Card>
       </section>
     </div>
   );
