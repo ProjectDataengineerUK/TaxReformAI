@@ -8,7 +8,7 @@ from api.schemas_query import PayloadConsulta, RespostaConsulta, TransicaoRespos
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from orquestracao.dependencias import DependenciasOrquestracao
 from orquestracao.estado import State
-from orquestracao.executor import executar_consulta
+from orquestracao.executor import ConsultaForaDeEscopoError, executar_consulta
 from orquestracao.llm.cliente import LLMIndisponivelError
 from orquestracao.nos.sintetizador import LLMRespostaInconsistenteError
 
@@ -30,6 +30,14 @@ def consultar(
     try:
         state = executar_consulta(state, deps)
     except AliquotaNaoDisponivelError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
+        ) from exc
+    except ConsultaForaDeEscopoError as exc:
+        # Achado real: sem isto, uma pergunta sem nenhuma relação com
+        # tributos (ex: receita de bolo) gerava um parecer de simulação
+        # fabricado a partir de valor_base/ano_operacao que sobravam no
+        # payload — nunca 200 com um cálculo que a pergunta não pediu.
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
         ) from exc

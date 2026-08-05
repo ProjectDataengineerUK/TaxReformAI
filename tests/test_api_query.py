@@ -137,3 +137,33 @@ def test_audit_log_grava_texto_mascarado_nao_o_bruto(client, monkeypatch):
     assert len(chamadas) == 1
     assert "555.444.333-22" not in chamadas[0].prompt_consulta
     assert "[CPF_MASCARADO]" in chamadas[0].prompt_consulta
+
+
+def test_at004_pergunta_fora_de_escopo_retorna_422_nao_simulacao_fabricada():
+    # Achado real (2026-08-05): "uma receita de bolo de chocolate", com
+    # valor_base/ano_operacao que sobravam no payload de um teste anterior,
+    # gerava um parecer completo de simulação tributária em produção. O
+    # classificador já dizia intencao=OUTRO — só nada usava isso.
+    app.dependency_overrides[get_settings] = lambda: ApiSettings(
+        api_keys_to_tenant={CHAVE_VALIDA: "tenant-a"}
+    )
+    app.dependency_overrides[get_dependencias_orquestracao] = lambda: criar_dependencias_fake(
+        cliente_llm=ClienteLLMFake(respostas_por_modelo={MODELO_HAIKU: "OUTRO"})
+    )
+    client = TestClient(app)
+
+    try:
+        response = client.post(
+            "/v1/tax/query",
+            json={
+                "texto_consulta": "uma receita de bolo de chocolate",
+                "ano_operacao": 2026,
+                "valor_base": "1000.00",
+            },
+            headers={"X-API-Key": CHAVE_VALIDA},
+        )
+    finally:
+        app.dependency_overrides.clear()
+
+    assert response.status_code == 422
+    assert "parecer_final" not in response.json()

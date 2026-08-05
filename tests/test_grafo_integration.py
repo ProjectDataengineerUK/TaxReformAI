@@ -5,7 +5,7 @@ import pytest
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from orquestracao.dependencias import criar_dependencias_fake
 from orquestracao.estado import State
-from orquestracao.executor import executar_consulta
+from orquestracao.executor import ConsultaForaDeEscopoError, executar_consulta
 from orquestracao.llm.cliente import MODELO_HAIKU, MODELO_SONNET, ClienteLLMFake
 from orquestracao.nos.classificador import no_classificador
 from orquestracao.nos.deterministico import no_deterministico
@@ -98,3 +98,25 @@ def test_at003_cpf_mascarado_antes_de_qualquer_no_subsequente():
     assert "987.654.321-00" not in state.texto_mascarado
     assert all("987.654.321-00" not in t.resumo_input for t in state.historico)
     assert all("987.654.321-00" not in t.resumo_output for t in state.historico)
+
+
+def test_at004_intencao_outro_interrompe_sem_simulacao_fabricada():
+    """Achado real (2026-08-05): "uma receita de bolo de chocolate" gerava um
+    parecer completo de simulação tributária, usando valor_base/ano_operacao
+    que sobravam no payload — o classificador já dizia intencao=OUTRO, mas
+    nada usava essa classificação para interromper o pipeline."""
+    state = State(
+        texto_consulta="uma receita de bolo de chocolate",
+        ano_operacao=2026,
+        valor_base=Decimal("1000.00"),
+    )
+    deps = criar_dependencias_fake(
+        cliente_llm=ClienteLLMFake(respostas_por_modelo={MODELO_HAIKU: "OUTRO"})
+    )
+
+    with pytest.raises(ConsultaForaDeEscopoError):
+        executar_consulta(state, deps)
+
+    assert state.resultado_calculo is None
+    assert state.parecer_final is None
+    assert [t.no for t in state.historico] == ["classificador"]
