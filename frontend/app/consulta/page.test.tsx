@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError } from "@/lib/api-client";
+import { ApiKeyProvider } from "@/hooks/useApiKey";
 
 import ConsultaPage from "./page";
 
@@ -18,7 +19,9 @@ function renderComQueryClient() {
   const client = new QueryClient();
   return render(
     <QueryClientProvider client={client}>
-      <ConsultaPage />
+      <ApiKeyProvider>
+        <ConsultaPage />
+      </ApiKeyProvider>
     </QueryClientProvider>,
   );
 }
