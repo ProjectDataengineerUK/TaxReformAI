@@ -72,7 +72,17 @@ def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
                 ),
             }
         ],
-        max_tokens=1024,
+        # 2048, não 1024: achado real em produção (2026-08-05) — com fontes
+        # recuperadas reais do Qdrant (5 chunks, texto real e às vezes longo,
+        # diferente do "(nenhuma fonte recuperada)" dos testes com fake), o
+        # Sonnet ocasionalmente estoura 1024 tokens ANTES de chegar à seção
+        # de Fundamentação Legal, cortando a resposta no meio de uma frase —
+        # o guardrail então reprova corretamente (a resposta truncada de fato
+        # não reproduz fonte_legal), mas o usuário via 503 em ~30% das
+        # consultas reais (3/10 numa amostra de diagnóstico contra o pipeline
+        # completo). Repetindo a mesma amostra com max_tokens=2048: 0/10
+        # falhas — a causa era orçamento de tokens, não o guardrail em si.
+        max_tokens=2048,
     )
 
     # Guardrail: TODOS os campos numéricos + a fundamentação legal precisam
