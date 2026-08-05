@@ -1,0 +1,30 @@
+name: Diagnostico Query LLM (temporario)
+
+# Descartavel — chama POST /v1/tax/query direto contra a API em producao com
+# timeout longo (120s) para capturar o corpo real da resposta.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Chamar /v1/tax/query com timeout longo
+        env:
+          API_KEYS: ${{ secrets.API_KEYS }}
+        run: |
+          API_URL="https://taxreformai-api-as2g43xasa-rj.a.run.app"
+          CHAVE=$(echo "$API_KEYS" | jq -r 'keys[0]')
+          TENANT=$(echo "$API_KEYS" | jq -r --arg k "$CHAVE" '.[$k]')
+          for i in 1 2; do
+            echo "=== Tentativa $i ==="
+            START=$(date +%s)
+            HTTP=$(curl -sS -o /tmp/query.json -w '%{http_code}' --max-time 120 \
+              -X POST "$API_URL/v1/tax/query" \
+              -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
+              -d "{\"tenant_id\":\"${TENANT}\",\"texto_consulta\":\"Quanto de CBS incide sobre uma venda de R\$ 1000,00 em 2026?\",\"ano_operacao\":2026,\"valor_base\":\"1000.00\"}")
+            END=$(date +%s)
+            echo "HTTP=$HTTP tempo=$((END-START))s"
+            cat /tmp/query.json
+            echo ""
+          done
