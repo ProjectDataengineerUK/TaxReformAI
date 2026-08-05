@@ -206,6 +206,18 @@ jobs:
       # container Next.js standalone, nunca embutidas no bundle (diferente de
       # NEXT_PUBLIC_API_BASE_URL). AUTH_TRUST_HOST=true é obrigatório: o Cloud Run termina TLS na
       # borda e repassa via X-Forwarded-*, que o Auth.js desconfia por padrão sem essa flag.
+      #
+      # AUTH_URL — achado real de 2026-08-05: mesmo com AUTH_TRUST_HOST=true, o
+      # login real com Google falhava com "CallbackRouteError" — Google
+      # recusava a troca do code por token com "doesn't comply with Google's
+      # OAuth 2.0 policy for keeping apps secure". O redirect_uri que o
+      # servidor usa na troca de token (server-to-server, dentro do
+      # container) não é coberto por trustHost/X-Forwarded-Host da mesma
+      # forma que o redirect inicial (browser-to-Google) — sem AUTH_URL
+      # explícito, o Next.js standalone deriva o host do próprio bind
+      # address do servidor Node (http://0.0.0.0:8080, visível nos logs),
+      # que diverge do redirect_uri já usado (e registrado no Google Cloud
+      # Console) na etapa de autorização. AUTH_URL fixa o valor canônico.
       - name: Deploy do frontend
         if: ${{ inputs.target == 'frontend' || inputs.target == 'both' }}
         env:
@@ -213,7 +225,12 @@ jobs:
           GOOGLE_OAUTH_CLIENT_ID: ${{ secrets.GOOGLE_OAUTH_CLIENT_ID }}
           GOOGLE_OAUTH_CLIENT_SECRET: ${{ secrets.GOOGLE_OAUTH_CLIENT_SECRET }}
           ALLOWED_EMAILS: ${{ secrets.ALLOWED_EMAILS }}
+          AUTH_URL_VALOR: ${{ steps.urls.outputs.frontend }}
         run: |
+          if [ -z "$AUTH_URL_VALOR" ]; then
+            echo "Nenhuma URL de frontend existente resolvida — 1º deploy do serviço."
+            echo "AUTH_URL ficará correta só a partir do 2º deploy (URL do Cloud Run é estável)."
+          fi
           gcloud run deploy "$SERVICE_FRONTEND" \
             --image="${IMAGE_REPO}/frontend:${GITHUB_SHA}" \
             --region="$REGION" \
@@ -222,7 +239,7 @@ jobs:
             --port=8080 \
             --quiet \
             --service-account="$RUNTIME_SA" \
-            --set-env-vars="^|^AUTH_SECRET=${AUTH_SECRET}|AUTH_GOOGLE_ID=${GOOGLE_OAUTH_CLIENT_ID}|AUTH_GOOGLE_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}|ALLOWED_EMAILS=${ALLOWED_EMAILS}|AUTH_TRUST_HOST=true"
+            --set-env-vars="^|^AUTH_SECRET=${AUTH_SECRET}|AUTH_GOOGLE_ID=${GOOGLE_OAUTH_CLIENT_ID}|AUTH_GOOGLE_SECRET=${GOOGLE_OAUTH_CLIENT_SECRET}|ALLOWED_EMAILS=${ALLOWED_EMAILS}|AUTH_TRUST_HOST=true|AUTH_URL=${AUTH_URL_VALOR}"
 
       - name: Resolver URL do frontend
         id: frontend_url
