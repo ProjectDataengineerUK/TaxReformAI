@@ -46,3 +46,21 @@ export async function apiPost<TResponse>(
 
   return response.json() as Promise<TResponse>;
 }
+
+export async function apiGet<TResponse>(path: string, apiKey: string): Promise<TResponse> {
+  let response: Response;
+  try {
+    response = await fetch(`${BASE_URL}${path}`, {
+      headers: { "X-API-Key": apiKey },
+    });
+  } catch {
+    throw new ApiError(0, "Não foi possível conectar à API");
+  }
+
+  if (!response.ok) {
+    const payload = await response.json().catch(() => null);
+    throw new ApiError(response.status, extractDetail(payload, response.statusText));
+  }
+
+  return response.json() as Promise<TResponse>;
+}

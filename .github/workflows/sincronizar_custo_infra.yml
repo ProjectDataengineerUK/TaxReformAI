@@ -1,0 +1,68 @@
+name: Sincronizar Custo de Infra
+
+# Mesmo padrão de trigger duplo de sincronizar_bigquery.yml (Decisão 4 do
+# DESIGN_BIGQUERY_DATA_WAREHOUSE.md, reaproveitada aqui): primeira execução
+# real sempre manual, depois o schedule assume. SA dedicada
+# (taxreformai-cost-sync) com escopo mínimo: só LÊ o dataset de billing
+# export e ESCREVE nas 2 tabelas de observabilidade — nunca toca dados de
+# tenant (Decision 2/3 do DESIGN_PAINEL_OBSERVABILIDADE.md).
+#
+# PRÉ-REQUISITO fora do alcance deste workflow: o usuário precisa ter
+# habilitado "Cloud Billing export to BigQuery" (detailed usage cost) no
+# Console GCP, apontando para o dataset informado em BILLING_EXPORT_DATASET
+# — não é algo que Terraform ou CI conseguem ligar (é ação de administrador
+# da conta de billing, fora do projeto).
+on:
+  schedule:
+    - cron: "0 7 * * *" # 07:00 UTC = 04:00 BRT — 1h depois do sync do BigQuery
+  workflow_dispatch: {}
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  INSTANCE_CONNECTION_NAME: taxreformai-dev:southamerica-east1:taxreformai-pg
+  GCP_PROJECT_ID: taxreformai-dev
+  BILLING_EXPORT_DATASET: billing_export
+
+jobs:
+  sincronizar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_COST_SYNC_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ler senha da aplicação no Secret Manager
+        run: |
+          echo "PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=$GCP_PROJECT_ID)" >> "$GITHUB_ENV"
+
+      - name: Baixar Cloud SQL Auth Proxy
+        run: |
+          curl -sSL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.23.0/cloud-sql-proxy.linux.amd64
+          echo "cd689d582b826fa5bc82c01ccc14e45a58200c3cefbf923ce96c422825e4e6f6  cloud-sql-proxy" | sha256sum -c -
+          chmod +x cloud-sql-proxy
+
+      - name: Iniciar o proxy em background
+        run: |
+          ./cloud-sql-proxy --port 5432 "$INSTANCE_CONNECTION_NAME" &
+          for _ in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null && break
+            sleep 1
+          done
+
+      - name: Sincronizar Billing Export -> custo_infra_diario
+        env:
+          DATABASE_URL: postgresql://taxreformai_app:${{ env.PG_APP_PASSWORD }}@127.0.0.1:5432/taxreformai
+        run: python scripts/sincronizar_custo_infra.py

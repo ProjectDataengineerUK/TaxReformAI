@@ -13,8 +13,9 @@ from orquestracao.dependencias import DependenciasOrquestracao
 
 @lru_cache
 def get_dependencias_orquestracao() -> DependenciasOrquestracao:
+    from api.db import get_db_pool
     from orquestracao.config import OrquestracaoSettings
     from orquestracao.dependencias import criar_dependencias_reais
 
     settings = OrquestracaoSettings.from_env()
-    return criar_dependencias_reais(settings)
+    return criar_dependencias_reais(settings, db_pool=get_db_pool())

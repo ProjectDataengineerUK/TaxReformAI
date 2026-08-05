@@ -25,6 +25,10 @@ COPY api/ ./api/
 COPY motor_calculo/ ./motor_calculo/
 COPY orquestracao/ ./orquestracao/
 COPY ingestion/ ./ingestion/
+# PAINEL_OBSERVABILIDADE: api/routers/observabilidade.py lê
+# observabilidade/scorecard.yaml em runtime (Path relativo ao __file__ do
+# pacote) — sem este COPY, o endpoint /scorecard sempre devolveria 503.
+COPY observabilidade/ ./observabilidade/
 # db/ (schema, migrador, repositório do audit log) — api/audit.py importa
 # db.repositorio. Faltou aqui na primeira vez que a API real chamou o
 # audit log: os testes locais rodam a partir da raiz do repo, onde db/ já

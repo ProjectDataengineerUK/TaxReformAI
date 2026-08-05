@@ -40,6 +40,7 @@ def no_extrator_regras(state: State, deps: DependenciasOrquestracao) -> State:
                 ),
             }
         ],
+        no_origem="extrator_regras",
     )
     extraido = _extrair_json(resposta)
 

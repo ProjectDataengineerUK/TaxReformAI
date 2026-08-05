@@ -13,6 +13,7 @@ script de infraestrutura real deste projeto.
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
 import uuid
@@ -23,6 +24,8 @@ import psycopg
 from google.cloud import bigquery
 
 from db.repositorio import sessao_do_tenant
+
+logger = logging.getLogger(__name__)
 
 DATASET_ID = "taxreformai_analytics"
 TABLE_ID = "pareceres_historico"
@@ -115,13 +118,23 @@ def carregar_via_merge(client: bigquery.Client, project_id: str, linhas: list[di
         client.delete_table(staging_ref, not_found_ok=True)
 
 
-def main() -> None:
-    project_id = os.environ.get("GCP_PROJECT_ID")
-    dsn = os.environ.get("DATABASE_URL")
-    if not project_id or not dsn:
-        print("FALHA: GCP_PROJECT_ID e DATABASE_URL são obrigatórios.", file=sys.stderr)
-        sys.exit(1)
+def _heartbeat(dsn: str, sucesso: bool, detalhe: str) -> None:
+    """PAINEL_OBSERVABILIDADE: sem isto, observabilidade/status.py::status_sync_bigquery
+    nunca teria o que ler. Falha ao gravar o heartbeat nunca mascara o
+    resultado real do sync (o `raise` em `main()` já aconteceu antes)."""
+    from observabilidade.execucoes import registrar_execucao
 
+    try:
+        conexao = psycopg.connect(dsn)
+        try:
+            registrar_execucao(conexao, "sincronizar_bigquery", sucesso, detalhe)
+        finally:
+            conexao.close()
+    except Exception:
+        logger.exception("Falha ao gravar heartbeat em observabilidade_execucoes")
+
+
+def _sincronizar(project_id: str, dsn: str) -> str:
     client = bigquery.Client(project=project_id)
     conexao = psycopg.connect(dsn)
 
@@ -133,10 +146,26 @@ def main() -> None:
 
     if not linhas:
         print("Nenhuma linha nova desde o último sync.")
-        return
+        return "Nenhuma linha nova desde o último sync."
 
     carregar_via_merge(client, project_id, linhas)
     print(f"OK: {len(linhas)} linha(s) sincronizada(s).")
+    return f"{len(linhas)} linha(s) sincronizada(s)."
+
+
+def main() -> None:
+    project_id = os.environ.get("GCP_PROJECT_ID")
+    dsn = os.environ.get("DATABASE_URL")
+    if not project_id or not dsn:
+        print("FALHA: GCP_PROJECT_ID e DATABASE_URL são obrigatórios.", file=sys.stderr)
+        sys.exit(1)
+
+    try:
+        detalhe = _sincronizar(project_id, dsn)
+    except Exception as exc:
+        _heartbeat(dsn, sucesso=False, detalhe=str(exc)[:500])
+        raise
+    _heartbeat(dsn, sucesso=True, detalhe=detalhe)
 
 
 if __name__ == "__main__":

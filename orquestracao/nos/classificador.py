@@ -49,6 +49,7 @@ def no_classificador(state: State, deps: DependenciasOrquestracao) -> State:
                 ),
             }
         ],
+        no_origem="classificador",
     )
     intencao = resposta.strip()
     if intencao not in _INTENCOES_VALIDAS:

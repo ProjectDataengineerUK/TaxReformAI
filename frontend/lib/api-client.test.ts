@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ApiError, apiPost } from "./api-client";
+import { ApiError, apiGet, apiPost } from "./api-client";
 
 describe("apiPost", () => {
   afterEach(() => {
@@ -71,6 +71,45 @@ describe("apiPost", () => {
 
     await expect(apiPost("/v1/tax/query", {}, "chave")).rejects.toMatchObject({
       status: 0,
+    });
+  });
+});
+
+describe("apiGet", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("retorna o corpo tipado em caso de sucesso, sem corpo na requisição", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ recursos: [] }),
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const result = await apiGet<{ recursos: unknown[] }>("/v1/observabilidade/status", "chave");
+
+    expect(result).toEqual({ recursos: [] });
+    expect(fetchMock).toHaveBeenCalledWith(
+      expect.stringContaining("/v1/observabilidade/status"),
+      expect.objectContaining({ headers: expect.objectContaining({ "X-API-Key": "chave" }) }),
+    );
+  });
+
+  it("lança ApiError com status 503 quando a API recusa", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 503,
+        statusText: "Service Unavailable",
+        json: async () => ({ detail: "Cloud SQL não configurado" }),
+      }),
+    );
+
+    await expect(apiGet("/v1/observabilidade/status", "chave")).rejects.toMatchObject({
+      status: 503,
+      detail: "Cloud SQL não configurado",
     });
   });
 });

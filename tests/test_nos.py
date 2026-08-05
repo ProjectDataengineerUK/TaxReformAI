@@ -62,6 +62,7 @@ def test_no_classificador_mascara_pii_e_classifica_intencao_real():
     assert state.intencao == "SIMULACAO_TRIBUTARIA"
     assert len(state.historico) == 1
     assert "123.456.789-01" not in state.historico[0].resumo_output
+    assert cliente.chamadas[0]["no_origem"] == "classificador"
 
 
 def test_no_classificador_intencao_fora_do_enum_vira_outro():
@@ -131,6 +132,7 @@ def test_no_extrator_regras_monta_payload_compativel_com_motor():
     assert state.payload_extraido["valor_base"] == Decimal("500.00")
     assert state.payload_extraido["ano_operacao"] == 2026
     assert "DIVERGÊNCIA" not in state.historico[0].resumo_output
+    assert deps.cliente_llm.chamadas[0]["no_origem"] == "extrator_regras"
 
 
 def test_no_extrator_regras_registra_divergencia_sem_alterar_payload():
@@ -203,6 +205,7 @@ def test_no_sintetizador_gera_parecer_com_fonte_legal_e_sem_marcador_fake():
     assert state.parecer_final is not None
     assert "990.00" in state.parecer_final
     assert "[FAKE]" not in state.parecer_final
+    assert cliente.chamadas[-1]["no_origem"] == "sintetizador"
     assert "[FAKE]" not in state.historico[-1].resumo_output
 
 

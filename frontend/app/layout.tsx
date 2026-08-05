@@ -33,6 +33,9 @@ export default async function RootLayout({ children }: { children: React.ReactNo
                 <Link href="/consulta" className="text-muted-foreground hover:text-foreground">
                   Consulta
                 </Link>
+                <Link href="/painel" className="text-muted-foreground hover:text-foreground">
+                  Observabilidade
+                </Link>
                 <span className="ml-auto flex items-center gap-3">
                   <span className="text-xs text-muted-foreground">{session.user?.email}</span>
                   <SignOutButton />

@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from api.routers.empresa_skus import router as empresa_skus_router
+from api.routers.observabilidade import router as observabilidade_router
 from api.routers.query import router as query_router
 from api.routers.simulate import router as simulate_router
 from api.routers.skus_tasks import router as skus_tasks_router
@@ -24,6 +25,7 @@ app.include_router(simulate_router)
 app.include_router(query_router)
 app.include_router(empresa_skus_router)
 app.include_router(skus_tasks_router)
+app.include_router(observabilidade_router)
 
 
 # /health, NÃO /healthz: o Google Front End intercepta o path exato `/healthz`

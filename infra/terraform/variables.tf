@@ -24,3 +24,14 @@ variable "terraform_sa_email" {
   description = "E-mail da SA que executa o Terraform (extraído de GCP_SA_KEY em runtime)"
   type        = string
 }
+
+# PAINEL_OBSERVABILIDADE — o dataset de Billing Export é criado pelo GCP
+# quando o usuário habilita "Cloud Billing export to BigQuery" no Console
+# (ação manual, fora do alcance do Terraform — não existe recurso
+# `google_bigquery_dataset` aqui para ele, só um `data` source lendo o que já
+# existe). Mesmo nome usado em BILLING_EXPORT_DATASET no workflow.
+variable "billing_export_dataset" {
+  description = "Dataset BigQuery do Billing Export, criado manualmente no Console GCP"
+  type        = string
+  default     = "billing_export"
+}

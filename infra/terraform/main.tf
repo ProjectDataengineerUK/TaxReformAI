@@ -465,6 +465,62 @@ output "bigquery_sync_service_account_email" {
   value = google_service_account.bigquery_sync_sa.email
 }
 
+# --- SA dedicada: sincronizar_custo_infra.py (PAINEL_OBSERVABILIDADE) ---
+# Direção OPOSTA de taxreformai-bigquery-sync: LÊ o dataset de Billing Export
+# (fora do controle do Terraform, ver variables.tf) e ESCREVE em
+# custo_infra_diario/observabilidade_execucoes (Cloud SQL). Autentica como
+# taxreformai_app, não taxreformai_admin — este job só grava em 2 tabelas
+# próprias, sem precisar iterar tenants (Decision 2/3 do DESIGN), privilégio
+# real mais mínimo do que o do sync do BigQuery.
+resource "google_service_account" "cost_sync_sa" {
+  project      = var.project_id
+  account_id   = "taxreformai-cost-sync"
+  display_name = "TaxReform AI - Sync Billing Export -> Cloud SQL (cron diario)"
+}
+
+resource "google_project_iam_member" "cost_sync_cloudsql_client" {
+  project = var.project_id
+  role    = "roles/cloudsql.client"
+  member  = "serviceAccount:${google_service_account.cost_sync_sa.email}"
+}
+
+resource "google_secret_manager_secret_iam_member" "cost_sync_le_senha_app" {
+  project   = var.project_id
+  secret_id = google_secret_manager_secret.pg_app_password.secret_id
+  role      = "roles/secretmanager.secretAccessor"
+  member    = "serviceAccount:${google_service_account.cost_sync_sa.email}"
+}
+
+# `data`, não `resource`: o dataset de Billing Export é criado pelo GCP
+# quando o usuário habilita o export no Console — Terraform nunca é dono
+# dele. `terraform apply` deste bloco só funciona DEPOIS desse passo manual
+# (Decision 2 do DESIGN_PAINEL_OBSERVABILIDADE.md); antes disso, falha alto
+# com "dataset not found", nunca em silêncio.
+data "google_bigquery_dataset" "billing_export" {
+  project    = var.project_id
+  dataset_id = var.billing_export_dataset
+}
+
+resource "google_bigquery_dataset_iam_member" "cost_sync_data_viewer" {
+  project    = var.project_id
+  dataset_id = data.google_bigquery_dataset.billing_export.dataset_id
+  role       = "roles/bigquery.dataViewer"
+  member     = "serviceAccount:${google_service_account.cost_sync_sa.email}"
+}
+
+# Sem equivalente escopado a dataset — rodar uma query no BigQuery exige
+# este papel no nível do projeto, mesmo achado já documentado no sync do
+# BigQuery (bigquery_sync_job_user).
+resource "google_project_iam_member" "cost_sync_job_user" {
+  project = var.project_id
+  role    = "roles/bigquery.jobUser"
+  member  = "serviceAccount:${google_service_account.cost_sync_sa.email}"
+}
+
+output "cost_sync_service_account_email" {
+  value = google_service_account.cost_sync_sa.email
+}
+
 # --- Cloud Tasks (FILA_ASSINCRONA_CELERY_REDIS) — upload assíncrono de SKUs ---
 # Nome do roadmap preservado (posição 11); mecanismo real é Cloud Tasks, não
 # Celery/Redis — rejeitado no /brainstorm por exigir VPC + Serverless VPC

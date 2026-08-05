@@ -1,0 +1,85 @@
+# PAINEL_OBSERVABILIDADE — scorecard versionado, NUNCA calculado em tempo de
+# request (Decision 5 do DESIGN). Atualizar isto é ação humana — editar e
+# commitar, o mesmo fluxo de qualquer outro arquivo do repositório. O
+# histórico de evolução da nota vem "de graça" via `git log` deste arquivo.
+#
+# Cada nota é uma avaliação contra um framework citado, não uma métrica
+# automática — onde a prática real do projeto diverge do framework (pra
+# melhor ou pra pior), a justificativa diz isso explicitamente.
+
+mlops:
+  framework: "Google MLOps Maturity Model (níveis 0-4, mapeados aqui para 1-5)"
+  nota: 2
+  justificativa: >
+    Aplicabilidade parcial: o projeto não treina nem retreina modelos
+    próprios — consome Claude via API e usa um motor determinístico
+    (motor_calculo/, Python puro). Boa parte do framework clássico (data
+    drift, model registry, retraining automático) simplesmente não se
+    aplica aqui. O que existe: pipeline versionado em git, testado
+    extensivamente (600+ testes), guardrails de saída do LLM verificados
+    contra produção duas vezes nesta sessão. O que falta: nenhuma suíte de
+    avaliação sistemática da qualidade das respostas do LLM além dos
+    guardrails pontuais (fonte_legal, valores).
+
+dataops:
+  framework: "DataOps Maturity Model (DataKitchen, escala nativa 1-5)"
+  nota: 3
+  justificativa: >
+    Migrações idempotentes e versionadas, testes reais contra Postgres no
+    CI (não só SQLite), idempotência provada em pipelines de sync
+    (sincronizar_bigquery.py, staging+MERGE). Perde pontos por orquestração
+    ainda majoritariamente manual (workflow_dispatch, não schedule) — o
+    Cloud Composer chegou a ser provisionado para automatizar isso e foi
+    destruído por instabilidade/custo, decisão documentada, não descuido.
+
+llmops:
+  framework: >
+    Composto próprio do projeto — não existe framework de mercado
+    consolidado para LLMOps ainda. Eixos: versionamento de prompt,
+    guardrails, observabilidade de custo, avaliação de saída.
+  nota: 3
+  justificativa: >
+    Prompts versionados em git (não em ferramenta externa). Guardrails
+    reais no sintetizador, dois achados reais corrigidos em produção nesta
+    sessão (fonte_legal por identificadores, max_tokens truncando ~30% das
+    respostas). Observabilidade de custo/token era ZERO antes desta
+    feature — PAINEL_OBSERVABILIDADE fecha esse eixo. Falta: avaliação
+    sistemática de qualidade de resposta (hoje só o guardrail verifica
+    presença de campos, não corretude semântica mais ampla).
+
+seguranca:
+  framework: "OWASP Top 10 + NIST CSF (Identify/Protect/Detect/Respond/Recover)"
+  nota: 4
+  por_funcao:
+    Identify: 4
+    Protect: 4
+    Detect: 3
+    Respond: 3
+    Recover: 3
+  justificativa: >
+    RLS provado contra produção real (não só inferido), mascaramento de
+    PII com defesa em profundidade antes de qualquer chamada de LLM,
+    guardrail contra fundamentação legal fabricada, nenhuma credencial
+    real jamais gerada/manuseada pelo agente (disciplina mantida mesmo sob
+    insistência direta do usuário em BIGQUERY_DATA_WAREHOUSE). Detect/
+    Respond/Recover mais fracos: esta feature é o primeiro passo real de
+    Detect (status ao vivo); ainda não há alerta automático (e-mail/Slack)
+    quando um recurso vira vermelho — só visualização sob demanda.
+
+finops_achados:
+  - achado: "Cloud SQL db-f1-micro esgotou o pool de conexões sob carga real de 55.000 linhas"
+    fonte: "FILA_ASSINCRONA_CELERY_REDIS — achado real, não corrigido"
+    oportunidade: >
+      Upgrade de tier ou um pooler externo (pgbouncer) antes de reabrir a
+      meta de 50.000+ linhas em um único upload.
+  - achado: "Cloud Composer custava ~US$300-400/mês para uma DAG de 2 tasks/semana"
+    fonte: "CLOUD_COMPOSER_PROVISIONAMENTO — decisão já tomada, ambiente destruído"
+    oportunidade: >
+      Já resolvido — mantido aqui como precedente de decisão FinOps real
+      (custo desproporcional ao uso foi identificado e revertido).
+  - achado: "Custo de token da API Claude era zero visibilidade antes desta feature"
+    fonte: "PAINEL_OBSERVABILIDADE — motivação original do pedido"
+    oportunidade: >
+      Com uso_llm populado, torna-se possível comparar custo real de
+      Haiku (classificador) vs Sonnet (extrator_regras + sintetizador) e
+      decidir se algum nó pode migrar para um modelo mais barato.

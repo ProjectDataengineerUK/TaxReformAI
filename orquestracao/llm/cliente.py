@@ -1,6 +1,8 @@
 from dataclasses import dataclass, field
 from typing import Protocol
 
+from orquestracao.llm.registrador import REGISTRADOR_NULO, RegistradorUsoLLM
+
 MODELO_HAIKU = "claude-haiku-4-5@20251001"
 MODELO_SONNET = "claude-sonnet-5"
 
@@ -20,7 +22,9 @@ class LLMIndisponivelError(Exception):
 
 
 class ClienteLLM(Protocol):
-    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str: ...
+    def gerar(
+        self, modelo: str, mensagens: list[dict], max_tokens: int = 1024, no_origem: str = "desconhecido"
+    ) -> str: ...
 
 
 def _extrair_texto(resposta, nome_provider: str) -> str:
@@ -36,19 +40,28 @@ class ClienteVertexAI:
     sem exigir região específica — elimina o conflito com `southamerica-east1`
     (região padrão do resto da infraestrutura deste projeto)."""
 
-    def __init__(self, project_id: str, region: str = "global"):
+    def __init__(self, project_id: str, region: str = "global", registrador: RegistradorUsoLLM = REGISTRADOR_NULO):
         from anthropic import AnthropicVertex
 
         self._client = AnthropicVertex(project_id=project_id, region=region)
+        self._registrador = registrador
 
-    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str:
+    def gerar(
+        self, modelo: str, mensagens: list[dict], max_tokens: int = 1024, no_origem: str = "desconhecido"
+    ) -> str:
         try:
             resposta = self._client.messages.create(
                 model=modelo, max_tokens=max_tokens, messages=mensagens
             )
         except Exception as exc:
+            self._registrador.registrar(no_origem, modelo, 0, 0, sucesso=False, erro_detalhe=str(exc)[:200])
             raise LLMIndisponivelError(f"Vertex AI indisponível: {exc}") from exc
-        return _extrair_texto(resposta, "o Vertex AI")
+
+        texto = _extrair_texto(resposta, "o Vertex AI")
+        self._registrador.registrar(
+            no_origem, modelo, resposta.usage.input_tokens, resposta.usage.output_tokens, sucesso=True
+        )
+        return texto
 
 
 class ClienteAnthropicDireto:
@@ -58,20 +71,29 @@ class ClienteAnthropicDireto:
     modelo do formato Vertex para o formato da API direta — os nós continuam
     importando MODELO_HAIKU/MODELO_SONNET sem saber qual provider está ativo."""
 
-    def __init__(self, api_key: str):
+    def __init__(self, api_key: str, registrador: RegistradorUsoLLM = REGISTRADOR_NULO):
         from anthropic import Anthropic
 
         self._client = Anthropic(api_key=api_key)
+        self._registrador = registrador
 
-    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str:
+    def gerar(
+        self, modelo: str, mensagens: list[dict], max_tokens: int = 1024, no_origem: str = "desconhecido"
+    ) -> str:
         modelo_real = _MAPA_MODELO_PARA_API_DIRETA.get(modelo, modelo)
         try:
             resposta = self._client.messages.create(
                 model=modelo_real, max_tokens=max_tokens, messages=mensagens
             )
         except Exception as exc:
+            self._registrador.registrar(no_origem, modelo, 0, 0, sucesso=False, erro_detalhe=str(exc)[:200])
             raise LLMIndisponivelError(f"API Claude direta indisponível: {exc}") from exc
-        return _extrair_texto(resposta, "a API Claude direta")
+
+        texto = _extrair_texto(resposta, "a API Claude direta")
+        self._registrador.registrar(
+            no_origem, modelo, resposta.usage.input_tokens, resposta.usage.output_tokens, sucesso=True
+        )
+        return texto
 
 
 @dataclass
@@ -82,6 +104,10 @@ class ClienteLLMFake:
     respostas_por_modelo: dict[str, str] = field(default_factory=dict)
     chamadas: list[dict] = field(default_factory=list)
 
-    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str:
-        self.chamadas.append({"modelo": modelo, "mensagens": mensagens, "max_tokens": max_tokens})
+    def gerar(
+        self, modelo: str, mensagens: list[dict], max_tokens: int = 1024, no_origem: str = "desconhecido"
+    ) -> str:
+        self.chamadas.append(
+            {"modelo": modelo, "mensagens": mensagens, "max_tokens": max_tokens, "no_origem": no_origem}
+        )
         return self.respostas_por_modelo.get(modelo, "resposta fake")

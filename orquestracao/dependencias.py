@@ -34,17 +34,23 @@ class DependenciasOrquestracao:
     embedder: Embedder
 
 
-def criar_dependencias_reais(settings: OrquestracaoSettings) -> DependenciasOrquestracao:
+def criar_dependencias_reais(settings: OrquestracaoSettings, db_pool=None) -> DependenciasOrquestracao:
     from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
     from ingestion.indexing.qdrant_indexer import QdrantIndexer
+    from orquestracao.llm.registrador import RegistradorUsoLLMPostgres
+
+    # PAINEL_OBSERVABILIDADE: db_pool é opcional (mesmo estado de
+    # api/db.py::get_db_pool() sem Cloud SQL configurado) — o registrador
+    # devolvido lida com pool=None sozinho, nunca bloqueia a chamada ao LLM.
+    registrador = RegistradorUsoLLMPostgres(db_pool)
 
     cliente_llm: ClienteLLM
     if settings.llm_provider == "vertex":
         cliente_llm = ClienteVertexAI(
-            project_id=settings.gcp_project_id, region=settings.vertex_ai_region
+            project_id=settings.gcp_project_id, region=settings.vertex_ai_region, registrador=registrador
         )
     else:
-        cliente_llm = ClienteAnthropicDireto(api_key=settings.anthropic_api_key)
+        cliente_llm = ClienteAnthropicDireto(api_key=settings.anthropic_api_key, registrador=registrador)
 
     return DependenciasOrquestracao(
         cliente_llm=cliente_llm,

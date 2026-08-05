@@ -61,3 +61,57 @@ export interface RespostaConsulta {
   fonte_legal: string;
   historico: TransicaoResposta[];
 }
+
+export type NivelStatus = "verde" | "amarelo" | "vermelho";
+
+export interface RecursoStatus {
+  recurso: string;
+  nivel: NivelStatus;
+  detalhe: string;
+}
+
+export interface RespostaStatus {
+  recursos: RecursoStatus[];
+}
+
+export interface CustoPorModelo {
+  modelo: string;
+  tokens_entrada: number;
+  tokens_saida: number;
+  custo_usd: number;
+}
+
+export interface CustoInfraPorServico {
+  servico: string;
+  custo_usd: number;
+}
+
+export interface RespostaCusto {
+  periodo_dias: number;
+  custo_token_total_usd: number;
+  custo_por_modelo: CustoPorModelo[];
+  custo_infra_total_usd: number;
+  custo_infra_por_servico: CustoInfraPorServico[];
+  alertas_limiar: string[];
+}
+
+export interface EixoMaturidade {
+  framework: string;
+  nota: number;
+  justificativa: string;
+  por_funcao?: Record<string, number>;
+}
+
+export interface AchadoFinOps {
+  achado: string;
+  fonte: string;
+  oportunidade: string;
+}
+
+export interface RespostaScorecard {
+  mlops: EixoMaturidade;
+  dataops: EixoMaturidade;
+  llmops: EixoMaturidade;
+  seguranca: EixoMaturidade;
+  finops_achados: AchadoFinOps[];
+}

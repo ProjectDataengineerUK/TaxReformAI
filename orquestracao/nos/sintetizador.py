@@ -83,6 +83,7 @@ def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
         # completo). Repetindo a mesma amostra com max_tokens=2048: 0/10
         # falhas — a causa era orçamento de tokens, não o guardrail em si.
         max_tokens=2048,
+        no_origem="sintetizador",
     )
 
     # Guardrail: TODOS os campos numéricos + a fundamentação legal precisam
