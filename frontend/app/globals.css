@@ -3,9 +3,15 @@
 @tailwind utilities;
 
 :root {
-  --border: 220 13% 85%;
-  --background: 0 0% 100%;
-  --foreground: 222 47% 11%;
+  --background: 224 24% 8%;
+  --surface: 222 22% 12%;
+  --foreground: 210 20% 96%;
+  --muted-foreground: 215 14% 62%;
+  --border: 222 16% 20%;
+  --accent: 160 84% 45%;
+  --accent-foreground: 224 24% 8%;
+  --destructive: 0 72% 55%;
+  --destructive-foreground: 210 20% 96%;
 }
 
 body {

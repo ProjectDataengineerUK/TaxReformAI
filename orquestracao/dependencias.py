@@ -3,7 +3,7 @@ from typing import Protocol
 
 from ingestion.chunking.chunk_models import Chunk
 from orquestracao.config import OrquestracaoSettings
-from orquestracao.llm.cliente import ClienteLLM, ClienteVertexAI
+from orquestracao.llm.cliente import ClienteAnthropicDireto, ClienteLLM, ClienteVertexAI
 
 
 class _EmbeddedQueryLike(Protocol):
@@ -38,10 +38,16 @@ def criar_dependencias_reais(settings: OrquestracaoSettings) -> DependenciasOrqu
     from ingestion.embedding.hybrid_embedder import FastEmbedHybridEmbedder
     from ingestion.indexing.qdrant_indexer import QdrantIndexer
 
-    return DependenciasOrquestracao(
-        cliente_llm=ClienteVertexAI(
+    cliente_llm: ClienteLLM
+    if settings.llm_provider == "vertex":
+        cliente_llm = ClienteVertexAI(
             project_id=settings.gcp_project_id, region=settings.vertex_ai_region
-        ),
+        )
+    else:
+        cliente_llm = ClienteAnthropicDireto(api_key=settings.anthropic_api_key)
+
+    return DependenciasOrquestracao(
+        cliente_llm=cliente_llm,
         qdrant_indexer=QdrantIndexer(
             url=settings.qdrant_url,
             api_key=settings.qdrant_api_key,

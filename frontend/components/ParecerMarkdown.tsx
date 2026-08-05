@@ -18,7 +18,7 @@ export function ParecerMarkdown({ resposta }: { resposta: RespostaConsulta }) {
         </CardHeader>
         <CardContent className="grid gap-1 text-sm">
           {resposta.historico.map((transicao, index) => (
-            <div key={index} className="border-b border-neutral-100 py-1 last:border-0">
+            <div key={index} className="border-b border-border py-1 last:border-0">
               <span className="font-medium">{transicao.no}</span>: {transicao.resumo_output}
             </div>
           ))}

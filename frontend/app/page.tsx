@@ -2,35 +2,57 @@ import Link from "next/link";
 
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
-export default function HomePage() {
+const RECURSOS = [
+  {
+    titulo: "Cálculo determinístico",
+    descricao:
+      "CBS, IBS e Imposto Seletivo calculados por regras auditáveis, nunca por estimativa de modelo de linguagem.",
+  },
+  {
+    titulo: "Fundamentação legal citável",
+    descricao:
+      "Toda alíquota aplicada aponta para o artigo real da LCP 214/2025 que a rege — sem citação inventada.",
+  },
+  {
+    titulo: "Cobertura da transição 2026–2033",
+    descricao:
+      "Do regime atual (PIS/COFINS, ICMS, ISS, IPI) até o IVA Dual pleno, incluindo os Anexos de redução e o Imposto Seletivo.",
+  },
+];
+
+export default function LandingPage() {
   return (
-    <div className="mx-auto grid max-w-2xl gap-4">
-      <h1 className="text-2xl font-bold">TaxReform AI — Simulador</h1>
-      <p className="text-neutral-600">
-        Configure sua API key acima e escolha um dos modos de simulação abaixo.
-      </p>
-      <div className="grid gap-4 sm:grid-cols-2">
-        <Link href="/simulador">
-          <Card className="h-full transition-shadow hover:shadow-md">
+    <div className="mx-auto grid max-w-4xl gap-16 py-12">
+      <section className="grid gap-6 text-center">
+        <h1 className="text-4xl font-bold tracking-tight text-foreground sm:text-5xl">
+          Inteligência tributária para a transição do IVA Dual
+        </h1>
+        <p className="mx-auto max-w-2xl text-lg text-muted-foreground">
+          Simule CBS, IBS e Imposto Seletivo com precisão auditável e fundamentação legal em cada
+          resultado — feito para departamentos fiscais, controllers e consultorias tributárias.
+        </p>
+        <div>
+          <Link
+            href="/login"
+            className="inline-flex h-11 items-center justify-center rounded-md bg-accent px-6 text-sm font-medium text-accent-foreground transition-colors hover:bg-accent/90"
+          >
+            Entrar com Google
+          </Link>
+        </div>
+      </section>
+
+      <section className="grid gap-4 sm:grid-cols-3">
+        {RECURSOS.map((recurso) => (
+          <Card key={recurso.titulo}>
             <CardHeader>
-              <CardTitle>Simulador Estruturado</CardTitle>
+              <CardTitle>{recurso.titulo}</CardTitle>
             </CardHeader>
-            <CardContent>
-              Envie uma lista de itens (NCM, quantidade, valor) e receba a simulação agregada.
+            <CardContent className="text-sm text-muted-foreground">
+              {recurso.descricao}
             </CardContent>
           </Card>
-        </Link>
-        <Link href="/consulta">
-          <Card className="h-full transition-shadow hover:shadow-md">
-            <CardHeader>
-              <CardTitle>Consulta Tributária</CardTitle>
-            </CardHeader>
-            <CardContent>
-              Faça uma pergunta em texto livre e receba um parecer com fundamentação legal.
-            </CardContent>
-          </Card>
-        </Link>
-      </div>
+        ))}
+      </section>
     </div>
   );
 }

@@ -15,8 +15,8 @@ export function ApiKeyBar() {
   }, [apiKey]);
 
   return (
-    <div className="flex items-center gap-2 border-b border-neutral-200 bg-neutral-50 px-4 py-2">
-      <label htmlFor="api-key-input" className="text-xs font-medium text-neutral-600">
+    <div className="flex items-center gap-2 border-b border-border bg-surface px-4 py-2">
+      <label htmlFor="api-key-input" className="text-xs font-medium text-muted-foreground">
         API Key
       </label>
       <Input
@@ -30,7 +30,7 @@ export function ApiKeyBar() {
       <Button size="sm" variant="outline" onClick={() => setApiKey(draft)}>
         Salvar
       </Button>
-      {apiKey && <span className="text-xs text-green-700">Configurada</span>}
+      {apiKey && <span className="text-xs text-accent">Configurada</span>}
     </div>
   );
 }

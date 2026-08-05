@@ -64,7 +64,7 @@ export function SimuladorForm({
 
       <div className="grid gap-3">
         {itens.map((item, index) => (
-          <div key={index} className="grid grid-cols-2 gap-2 rounded-md border p-3 sm:grid-cols-6">
+          <div key={index} className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-6">
             <Input
               placeholder="SKU"
               value={item.sku}

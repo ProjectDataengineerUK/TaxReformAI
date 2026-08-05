@@ -4,15 +4,30 @@ from typing import Protocol
 MODELO_HAIKU = "claude-haiku-4-5@20251001"
 MODELO_SONNET = "claude-sonnet-5"
 
+# Contorno ao bloqueio real de quota do Vertex AI (LLM_REAL_VERTEX_AI,
+# 429 RESOURCE_EXHAUSTED sem previsão): a API direta da Anthropic não
+# reconhece o formato Model Garden do Vertex. MODELO_SONNET já é idêntico nos
+# dois formatos, por isso não precisa de entrada aqui.
+_MAPA_MODELO_PARA_API_DIRETA = {
+    MODELO_HAIKU: "claude-haiku-4-5-20251001",
+}
+
 
 class LLMIndisponivelError(Exception):
-    """Levantada quando a chamada ao Vertex AI falha (rede, auth, timeout, 5xx,
-    ou resposta sem bloco de texto). Propaga sem ser capturada pelos nós —
+    """Levantada quando a chamada ao provider de LLM falha (rede, auth, timeout,
+    5xx, ou resposta sem bloco de texto). Propaga sem ser capturada pelos nós —
     mesma disciplina de `AliquotaNaoDisponivelError` em `no_deterministico`."""
 
 
 class ClienteLLM(Protocol):
     def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str: ...
+
+
+def _extrair_texto(resposta, nome_provider: str) -> str:
+    bloco_texto = next((b for b in resposta.content if b.type == "text"), None)
+    if bloco_texto is None:
+        raise LLMIndisponivelError(f"Resposta d{nome_provider} sem bloco de texto")
+    return bloco_texto.text
 
 
 class ClienteVertexAI:
@@ -33,11 +48,30 @@ class ClienteVertexAI:
             )
         except Exception as exc:
             raise LLMIndisponivelError(f"Vertex AI indisponível: {exc}") from exc
+        return _extrair_texto(resposta, "o Vertex AI")
 
-        bloco_texto = next((b for b in resposta.content if b.type == "text"), None)
-        if bloco_texto is None:
-            raise LLMIndisponivelError("Resposta do Vertex AI sem bloco de texto")
-        return bloco_texto.text
+
+class ClienteAnthropicDireto:
+    """Real — chama Claude via API direta da Anthropic (console.anthropic.com).
+    Contorno ao bloqueio real de quota do Vertex AI Model Garden
+    (`LLM_REAL_VERTEX_AI`, 429 RESOURCE_EXHAUSTED sem previsão). Traduz o ID de
+    modelo do formato Vertex para o formato da API direta — os nós continuam
+    importando MODELO_HAIKU/MODELO_SONNET sem saber qual provider está ativo."""
+
+    def __init__(self, api_key: str):
+        from anthropic import Anthropic
+
+        self._client = Anthropic(api_key=api_key)
+
+    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str:
+        modelo_real = _MAPA_MODELO_PARA_API_DIRETA.get(modelo, modelo)
+        try:
+            resposta = self._client.messages.create(
+                model=modelo_real, max_tokens=max_tokens, messages=mensagens
+            )
+        except Exception as exc:
+            raise LLMIndisponivelError(f"API Claude direta indisponível: {exc}") from exc
+        return _extrair_texto(resposta, "a API Claude direta")
 
 
 @dataclass
