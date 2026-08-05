@@ -25,13 +25,16 @@ variable "terraform_sa_email" {
   type        = string
 }
 
-# PAINEL_OBSERVABILIDADE — o dataset de Billing Export é criado pelo GCP
-# quando o usuário habilita "Cloud Billing export to BigQuery" no Console
-# (ação manual, fora do alcance do Terraform — não existe recurso
-# `google_bigquery_dataset` aqui para ele, só um `data` source lendo o que já
-# existe). Mesmo nome usado em BILLING_EXPORT_DATASET no workflow.
+# PAINEL_OBSERVABILIDADE — o Billing Export é habilitado manualmente pelo
+# usuário no Console GCP (ação fora do alcance do Terraform — não existe
+# recurso `google_bigquery_dataset` aqui, só um `data` source lendo o que já
+# existe). Reaproveita `taxreformai_analytics` (já existente desde
+# BIGQUERY_DATA_WAREHOUSE), não um dataset dedicado — decisão explícita do
+# usuário: `taxreformai-cost-sync` ganha leitura também de
+# `pareceres_historico`, aceito porque é SA interna sem exposição externa.
+# Mesmo nome usado em BILLING_EXPORT_DATASET no workflow.
 variable "billing_export_dataset" {
-  description = "Dataset BigQuery do Billing Export, criado manualmente no Console GCP"
+  description = "Dataset BigQuery do Billing Export — reaproveita taxreformai_analytics, criado manualmente no Console GCP"
   type        = string
-  default     = "billing_export"
+  default     = "taxreformai_analytics"
 }

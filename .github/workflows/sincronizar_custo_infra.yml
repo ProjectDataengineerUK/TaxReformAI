@@ -21,7 +21,11 @@ env:
   PYTHONPATH: ${{ github.workspace }}
   INSTANCE_CONNECTION_NAME: taxreformai-dev:southamerica-east1:taxreformai-pg
   GCP_PROJECT_ID: taxreformai-dev
-  BILLING_EXPORT_DATASET: billing_export
+  # Reaproveita o dataset já existente de BIGQUERY_DATA_WAREHOUSE (não um
+  # dataset dedicado só de billing) — decisão explícita do usuário: o custo
+  # de isolamento de um dataset novo não compensou, dado que
+  # taxreformai-cost-sync é uma SA interna sem exposição externa.
+  BILLING_EXPORT_DATASET: taxreformai_analytics
 
 jobs:
   sincronizar:
