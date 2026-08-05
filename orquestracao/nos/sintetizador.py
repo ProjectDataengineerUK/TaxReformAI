@@ -1,3 +1,4 @@
+import re
 from decimal import Decimal
 
 from orquestracao.dependencias import DependenciasOrquestracao
@@ -18,6 +19,23 @@ def _valor_aparece(valor: Decimal, texto: str) -> bool:
     # rejeitaria respostas corretas, criando pressão para afrouxá-lo depois.
     texto_ponto = str(valor)
     return texto_ponto in texto or texto_ponto.replace(".", ",") in texto
+
+
+def _fonte_legal_aparece(fonte_legal: str, texto: str) -> bool:
+    # Achado real (2026-08-05, primeira síntese real via LLM_CLAUDE_API_DIRETA
+    # a chegar até este guardrail — todas as tentativas anteriores travavam
+    # antes, na quota do Vertex AI): exigir a frase inteira como substring
+    # rejeitava até respostas corretas — o Sonnet reformata a citação em
+    # Markdown/prosa (lista com marcadores, negrito, sem o travessão/dois-
+    # pontos originais) mesmo instruído a reproduzi-la exatamente. Em vez da
+    # frase inteira, exige que TODOS os identificadores numéricos da citação
+    # (número da lei, artigos, ano) apareçam no texto gerado — ainda barra uma
+    # fundamentação fabricada (números diferentes não bateriam), só deixa de
+    # exigir a formatação literal.
+    identificadores = [n for n in re.findall(r"\d+", fonte_legal) if len(n) >= 2]
+    if not identificadores:
+        return fonte_legal in texto
+    return all(identificador in texto for identificador in identificadores)
 
 
 def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
@@ -70,7 +88,7 @@ def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
         "valor_is": resultado.valor_is,
     }
     ausentes = [nome for nome, valor in campos_numericos.items() if not _valor_aparece(valor, resposta)]
-    if resultado.fonte_legal not in resposta:
+    if not _fonte_legal_aparece(resultado.fonte_legal, resposta):
         ausentes.append("fonte_legal")
 
     if ausentes:

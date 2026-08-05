@@ -243,6 +243,34 @@ def test_no_sintetizador_guardrail_rejeita_parecer_com_fonte_legal_alterada():
         no_sintetizador(state, deps)
 
 
+def test_no_sintetizador_aceita_fonte_legal_reformatada_em_markdown():
+    # Achado real (2026-08-05): a API Claude direta em produção reformata a
+    # citação em Markdown/prosa (lista com marcadores, negrito, sem o
+    # travessão/dois-pontos originais) mesmo instruída a reproduzi-la
+    # exatamente — resposta real capturada via diagnóstico contra
+    # ClienteAnthropicDireto, reduzida ao trecho relevante.
+    cliente = ClienteLLMFake(
+        respostas_por_modelo={
+            MODELO_SONNET: (
+                "## Fundamentação Legal\n\n"
+                "A simulação tem como base o disposto na **LCP 214/2025, arts. 343 e 346**, "
+                "que estabelecem, para a **fase de teste do ano de 2026**, as seguintes "
+                "alíquotas: **CBS**: 0,9% e **IBS**: 0,1% (alíquota estadual).\n\n"
+                "Valor base: R$ 1000.00\nValor líquido: R$ 990.00\n"
+                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\n"
+            )
+        }
+    )
+    deps = criar_dependencias_fake(cliente_llm=cliente)
+    state = _state(valor_base="1000.00", ano=2026)
+    state.texto_mascarado = state.texto_consulta
+    state = no_extrator_regras(state, deps)
+    state = no_deterministico(state)
+
+    state = no_sintetizador(state, deps)
+    assert state.parecer_final is not None
+
+
 def test_no_sintetizador_aceita_valor_com_separador_decimal_pt_br():
     cliente = ClienteLLMFake(
         respostas_por_modelo={
