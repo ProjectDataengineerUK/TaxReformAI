@@ -15,8 +15,39 @@ export function ApiKeyProvider({ children }: { children: React.ReactNode }) {
   const [apiKey, setApiKeyState] = useState<string>("");
 
   useEffect(() => {
-    const stored = window.localStorage.getItem(STORAGE_KEY);
-    if (stored) setApiKeyState(stored);
+    let cancelado = false;
+
+    // Achado real (2026-08-05): a chave deixa de ser 100% manual — um
+    // usuário com sessão válida (login Google, mesma allowlist que já
+    // protege /simulador e /consulta via middleware) recebe a chave
+    // automaticamente de um endpoint interno server-side
+    // (app/api/api-key/route.ts), que nunca expõe FRONTEND_API_KEY ao
+    // navegador. localStorage continua como fallback manual — sem sessão
+    // (página pública/login), sem FRONTEND_API_KEY configurada (dev local),
+    // ou rede indisponível, cai para o fluxo antigo via ApiKeyBar.
+    async function carregar() {
+      try {
+        const resposta = await fetch("/api/api-key");
+        if (!cancelado && resposta.ok) {
+          const dados = (await resposta.json()) as { apiKey: string };
+          setApiKeyState(dados.apiKey);
+          return;
+        }
+      } catch {
+        // endpoint indisponível ou ambiente sem fetch relativo (ex: testes) —
+        // cai para o fallback de localStorage abaixo, sem propagar erro
+      }
+
+      if (!cancelado) {
+        const stored = window.localStorage.getItem(STORAGE_KEY);
+        if (stored) setApiKeyState(stored);
+      }
+    }
+
+    carregar();
+    return () => {
+      cancelado = true;
+    };
   }, []);
 
   const setApiKey = useCallback((value: string) => {
