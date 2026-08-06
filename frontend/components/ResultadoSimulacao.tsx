@@ -1,3 +1,4 @@
+import { ComparativoRegime } from "@/components/ComparativoRegime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RespostaSimulacao } from "@/lib/types";
 
@@ -6,6 +7,8 @@ export function ResultadoSimulacao({ resposta }: { resposta: RespostaSimulacao }
 
   return (
     <div className="grid gap-4">
+      <ComparativoRegime resposta={resposta} />
+
       <Card>
         <CardHeader>
           <CardTitle>Resumo financeiro — ano {resposta.ano_operacao}</CardTitle>

@@ -16,6 +16,19 @@ vi.mock("@/lib/api-client", async () => {
 
 import { apiPost } from "@/lib/api-client";
 
+const REGIME_VIGENTE_FAKE = {
+  regime_apuracao: null,
+  total_pis: null,
+  total_cofins: null,
+  total_icms_interestadual: "0.00",
+  total_icms_interno: "180.00",
+  total_icms_interno_fecp: "0.00",
+  total_iss_piso: "0.00",
+  total_iss_teto: "0.00",
+  total_ipi: null,
+  tributos_nao_calculados: ["PIS", "COFINS", "IPI"],
+};
+
 function renderComQueryClient() {
   const client = new QueryClient();
   return render(
@@ -52,15 +65,40 @@ describe("SimuladorPage", () => {
           fundamentacao_legal: "fase de teste 2026",
         },
       ],
+      regime_vigente: REGIME_VIGENTE_FAKE,
+      itens_regime_vigente: [
+        {
+          sku: "PROD-1",
+          natureza: "MERCADORIA",
+          icms_interestadual_percentual: null,
+          fonte_legal_icms: null,
+          icms_interno_percentual: "18.00",
+          fonte_legal_icms_interno: "Art. 52, I, do RICMS/SP",
+          icms_interno_fecp_percentual: null,
+          fonte_legal_icms_interno_fecp: null,
+          iss_piso_percentual: null,
+          iss_teto_percentual: null,
+          fonte_legal_iss_piso: null,
+          fonte_legal_iss_teto: null,
+          pis_percentual: null,
+          cofins_percentual: null,
+          fonte_legal_pis: null,
+          fonte_legal_cofins: null,
+          ipi_percentual: null,
+          fonte_legal_ipi: null,
+          ipi_situacao: "CONSULTA_INDISPONIVEL",
+        },
+      ],
+      fonte_legal_fase: "fase de teste 2026",
     };
     vi.mocked(apiPost).mockResolvedValueOnce(respostaFake);
 
     renderComQueryClient();
     await userEvent.click(screen.getByRole("button", { name: /simular/i }));
 
-    await waitFor(() => expect(screen.getByText(/R\$ 990.00/)).toBeInTheDocument());
-    expect(screen.getByText(/PROD-1/)).toBeInTheDocument();
-    expect(screen.getByText(/fase de teste 2026/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.getAllByText(/R\$ 990.00/).length).toBeGreaterThan(0));
+    expect(screen.getAllByText(/PROD-1/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/fase de teste 2026/).length).toBeGreaterThan(0);
   });
 
   it("AT-002: exibe mensagem clara quando a API retorna 401", async () => {
@@ -95,6 +133,9 @@ describe("SimuladorPage", () => {
         valor_liquido_projetado_split_payment: "990.00",
       },
       itens_detalhados: [],
+      regime_vigente: REGIME_VIGENTE_FAKE,
+      itens_regime_vigente: [],
+      fonte_legal_fase: "fase de teste 2026",
     };
     vi.mocked(apiPost).mockResolvedValueOnce(respostaFake);
 

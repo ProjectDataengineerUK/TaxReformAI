@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from api.schemas_simulate import ItemSimulacao
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from orquestracao.dependencias import criar_dependencias_fake
 from orquestracao.estado import State
@@ -17,6 +18,19 @@ FONTE_LEGAL_2026 = (
 )
 
 
+def _item(valor_base: str) -> ItemSimulacao:
+    # SP -> SP, ICMS interno 18% (RICMS/SP) — cobre o regime_vigente sem
+    # precisar de db_pool (ncm explícito nunca toca o catálogo empresa_skus).
+    return ItemSimulacao(
+        sku="SKU-TESTE", ncm="99999999", quantidade=1, valor_unitario=Decimal(valor_base),
+        uf_origem="SP", uf_destino="SP",
+    )
+
+
+def _icms_interno(valor_base: str) -> str:
+    return str((Decimal(valor_base) * Decimal("0.18")).quantize(Decimal("0.01")))
+
+
 def _cliente_fake_feliz(
     valor_base: str, valor_liquido: str, valor_cbs: str, valor_ibs: str
 ) -> ClienteLLMFake:
@@ -24,8 +38,9 @@ def _cliente_fake_feliz(
         respostas_por_modelo={
             MODELO_HAIKU: "SIMULACAO_TRIBUTARIA",
             MODELO_SONNET: (
-                f"## Parecer\n\nValor base: R$ {valor_base}\nValor líquido: R$ {valor_liquido}\n"
+                f"## Parecer\n\nValor bruto total: R$ {valor_base}\nValor líquido: R$ {valor_liquido}\n"
                 f"CBS: R$ {valor_cbs}\nIBS: R$ {valor_ibs}\nIS: R$ 0.00\n"
+                f"ICMS interno: R$ {_icms_interno(valor_base)}\n"
                 f"Fundamentação: {FONTE_LEGAL_2026}"
             ),
         }
@@ -37,6 +52,8 @@ def test_at001_happy_path_grafo_completo():
         texto_consulta="Simular CBS/IBS para venda de eletrônicos em 2026",
         ano_operacao=2026,
         valor_base=Decimal("2500.00"),
+        itens=[_item("2500.00")],
+        tenant_id="tenant-teste",
     )
     deps = criar_dependencias_fake(
         cliente_llm=_cliente_fake_feliz(
@@ -46,8 +63,11 @@ def test_at001_happy_path_grafo_completo():
 
     state = executar_consulta(state, deps)
 
-    assert state.resultado_calculo is not None
-    assert state.resultado_calculo.valor_liquido == Decimal("2475.00")
+    assert state.resultado_simulacao is not None
+    assert (
+        state.resultado_simulacao.resumo_financeiro.valor_liquido_projetado_split_payment
+        == Decimal("2475.00")
+    )
     assert state.parecer_final is not None
     assert [t.no for t in state.historico] == [
         "classificador",
@@ -63,6 +83,8 @@ def test_at002_ano_sem_aliquota_confirmada_interrompe_sem_parecer_inventado():
         texto_consulta="Simular para 2028",
         ano_operacao=2028,
         valor_base=Decimal("1000.00"),
+        itens=[_item("1000.00")],
+        tenant_id="tenant-teste",
     )
     deps = criar_dependencias_fake(
         cliente_llm=_cliente_fake_feliz(
@@ -75,9 +97,9 @@ def test_at002_ano_sem_aliquota_confirmada_interrompe_sem_parecer_inventado():
     state = no_extrator_regras(state, deps)
 
     with pytest.raises(AliquotaNaoDisponivelError):
-        no_deterministico(state)
+        no_deterministico(state, deps)
 
-    assert state.resultado_calculo is None
+    assert state.resultado_simulacao is None
     assert state.parecer_final is None
 
 
@@ -86,6 +108,8 @@ def test_at003_cpf_mascarado_antes_de_qualquer_no_subsequente():
         texto_consulta="CPF 987.654.321-00 quer simular para 2026",
         ano_operacao=2026,
         valor_base=Decimal("1000.00"),
+        itens=[_item("1000.00")],
+        tenant_id="tenant-teste",
     )
     deps = criar_dependencias_fake(
         cliente_llm=_cliente_fake_feliz(
@@ -109,6 +133,8 @@ def test_at004_intencao_outro_interrompe_sem_simulacao_fabricada():
         texto_consulta="uma receita de bolo de chocolate",
         ano_operacao=2026,
         valor_base=Decimal("1000.00"),
+        itens=[_item("1000.00")],
+        tenant_id="tenant-teste",
     )
     deps = criar_dependencias_fake(
         cliente_llm=ClienteLLMFake(respostas_por_modelo={MODELO_HAIKU: "OUTRO"})
@@ -117,6 +143,6 @@ def test_at004_intencao_outro_interrompe_sem_simulacao_fabricada():
     with pytest.raises(ConsultaForaDeEscopoError):
         executar_consulta(state, deps)
 
-    assert state.resultado_calculo is None
+    assert state.resultado_simulacao is None
     assert state.parecer_final is None
     assert [t.no for t in state.historico] == ["classificador"]

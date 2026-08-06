@@ -65,8 +65,32 @@ describe("ConsultaPage", () => {
   it("happy path exibe o parecer e o histórico", async () => {
     vi.mocked(apiPost).mockResolvedValueOnce({
       parecer_final: "## Parecer de Simulação Tributária\n\nTexto do parecer",
-      valor_liquido: "990.00",
-      fonte_legal: "fase de teste 2026",
+      resultado_simulacao: {
+        status: "SUCCESS",
+        ano_operacao: 2026,
+        resumo_financeiro: {
+          valor_bruto_total: "1000.00",
+          total_cbs: "9.00",
+          total_ibs: "1.00",
+          total_is: "0.00",
+          valor_liquido_projetado_split_payment: "990.00",
+        },
+        itens_detalhados: [],
+        regime_vigente: {
+          regime_apuracao: null,
+          total_pis: null,
+          total_cofins: null,
+          total_icms_interestadual: "0.00",
+          total_icms_interno: "180.00",
+          total_icms_interno_fecp: "0.00",
+          total_iss_piso: "0.00",
+          total_iss_teto: "0.00",
+          total_ipi: null,
+          tributos_nao_calculados: ["PIS", "COFINS", "IPI"],
+        },
+        itens_regime_vigente: [],
+        fonte_legal_fase: "fase de teste 2026",
+      },
       historico: [{ no: "classificador", resumo_output: "intencao=SIMULACAO_TRIBUTARIA" }],
     });
 

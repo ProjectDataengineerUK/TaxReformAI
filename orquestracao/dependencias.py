@@ -32,6 +32,12 @@ class DependenciasOrquestracao:
     cliente_llm: ClienteLLM
     qdrant_indexer: QdrantSearcher
     embedder: Embedder
+    # COMPARATIVO_REGIME_ATUAL_IVA_DUAL: no_deterministico precisa de
+    # db_pool para chamar api.simulacao.calcular_simulacao_completa()
+    # (Anexos de redução, IPI, catálogo de SKUs). `None` em teste continua
+    # funcionando para os nós que não o tocam — mesmo padrão de
+    # opcionalidade já usado no registrador de uso de LLM.
+    db_pool: object = None
 
 
 def criar_dependencias_reais(settings: OrquestracaoSettings, db_pool=None) -> DependenciasOrquestracao:
@@ -60,6 +66,7 @@ def criar_dependencias_reais(settings: OrquestracaoSettings, db_pool=None) -> De
             collection_name=settings.qdrant_collection_name,
         ),
         embedder=FastEmbedHybridEmbedder(dense_model_name=settings.dense_embedding_model),
+        db_pool=db_pool,
     )
 
 
@@ -104,6 +111,7 @@ class FakeQdrantSearcher:
 def criar_dependencias_fake(
     cliente_llm: ClienteLLM | None = None,
     chunks: list[Chunk] | None = None,
+    db_pool=None,
 ) -> DependenciasOrquestracao:
     from orquestracao.llm.cliente import ClienteLLMFake
 
@@ -111,4 +119,5 @@ def criar_dependencias_fake(
         cliente_llm=cliente_llm or ClienteLLMFake(),
         qdrant_indexer=FakeQdrantSearcher(chunks=chunks),
         embedder=FakeEmbedder(),
+        db_pool=db_pool,
     )

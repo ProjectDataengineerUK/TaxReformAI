@@ -1,5 +1,6 @@
 import ReactMarkdown from "react-markdown";
 
+import { ComparativoRegime } from "@/components/ComparativoRegime";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import type { RespostaConsulta } from "@/lib/types";
 
@@ -11,6 +12,8 @@ export function ParecerMarkdown({ resposta }: { resposta: RespostaConsulta }) {
           <ReactMarkdown>{resposta.parecer_final}</ReactMarkdown>
         </CardContent>
       </Card>
+
+      <ComparativoRegime resposta={resposta.resultado_simulacao} />
 
       <Card>
         <CardHeader>

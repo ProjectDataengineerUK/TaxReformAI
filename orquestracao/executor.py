@@ -34,6 +34,6 @@ def executar_consulta(state: State, deps: DependenciasOrquestracao) -> State:
         )
     state = no_pesquisador_legal(state, deps)
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
     state = no_sintetizador(state, deps)
     return state

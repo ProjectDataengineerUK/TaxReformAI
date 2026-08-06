@@ -28,21 +28,29 @@ FONTE_LEGAL_2026 = (
     "LCP 214/2025, arts. 343 e 346 — fase de teste 2026: CBS 0,9% e IBS 0,1% (alíquota estadual)"
 )
 
+_ITEM_1000 = {
+    "sku": "SKU-TESTE", "ncm": "99999999", "quantidade": 1, "valor_unitario": "1000.00",
+    "uf_origem": "SP", "uf_destino": "SP",
+}
+
 
 class _ClienteQueEmpaca:
-    def gerar(self, modelo: str, mensagens: list[dict], max_tokens: int = 1024) -> str:
+    def gerar(
+        self, modelo: str, mensagens: list[dict], max_tokens: int = 1024, no_origem: str = "desconhecido"
+    ) -> str:
         raise LLMIndisponivelError("Vertex AI indisponível (simulado)")
 
 
 def _cliente_fake_feliz() -> ClienteLLMFake:
-    # valor_base=1000.00/ano=2026 (payload único usado neste arquivo) — todos
-    # os campos precisam bater, não só valor_liquido (guardrail do sintetizador).
+    # Payload de 1000.00 (único usado neste arquivo) — todos os campos
+    # precisam bater, não só valor_liquido (guardrail do sintetizador).
     return ClienteLLMFake(
         respostas_por_modelo={
             MODELO_HAIKU: "SIMULACAO_TRIBUTARIA",
             MODELO_SONNET: (
-                "## Parecer\n\nValor base: R$ 1000.00\nValor líquido: R$ 990.00\n"
-                f"CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\nFundamentação: {FONTE_LEGAL_2026}"
+                "## Parecer\n\nValor bruto total: R$ 1000.00\nValor líquido: R$ 990.00\n"
+                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\nICMS interno: R$ 180.00\n"
+                f"Fundamentação: {FONTE_LEGAL_2026}"
             ),
         }
     )
@@ -68,7 +76,7 @@ def test_resposta_nao_contem_marcador_fake():
     client = _client(_cliente_fake_feliz())
     response = client.post(
         "/v1/tax/query",
-        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "valor_base": "1000.00"},
+        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "itens": [_ITEM_1000]},
         headers={"X-API-Key": CHAVE_VALIDA},
     )
 
@@ -89,7 +97,7 @@ def test_historico_reflete_chunks_reais_recuperados():
 
     response = client.post(
         "/v1/tax/query",
-        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "valor_base": "1000.00"},
+        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "itens": [_ITEM_1000]},
         headers={"X-API-Key": CHAVE_VALIDA},
     )
 
@@ -105,7 +113,7 @@ def test_vertex_ai_indisponivel_retorna_503_nao_200_com_dado_fabricado():
 
     response = client.post(
         "/v1/tax/query",
-        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "valor_base": "1000.00"},
+        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "itens": [_ITEM_1000]},
         headers={"X-API-Key": CHAVE_VALIDA},
     )
 
@@ -123,7 +131,7 @@ def test_guardrail_do_sintetizador_retorna_503_quando_valor_nao_bate():
 
     response = client.post(
         "/v1/tax/query",
-        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "valor_base": "1000.00"},
+        json={"texto_consulta": "simular para 2026", "ano_operacao": 2026, "itens": [_ITEM_1000]},
         headers={"X-API-Key": CHAVE_VALIDA},
     )
 

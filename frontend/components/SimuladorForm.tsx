@@ -14,6 +14,7 @@ const ITEM_VAZIO: ItemSimulacao = {
   valor_unitario: "0.00",
   uf_origem: "SP",
   uf_destino: "SP",
+  natureza: "MERCADORIA",
 };
 
 export function SimuladorForm({
@@ -27,8 +28,13 @@ export function SimuladorForm({
 }) {
   const [anoOperacao, setAnoOperacao] = useState(2026);
   const [itens, setItens] = useState<ItemSimulacao[]>([{ ...ITEM_VAZIO }]);
+  const [regimeApuracao, setRegimeApuracao] = useState("");
 
-  function atualizarItem(index: number, campo: keyof ItemSimulacao, valor: string | number) {
+  function atualizarItem(
+    index: number,
+    campo: keyof ItemSimulacao,
+    valor: string | number,
+  ) {
     setItens((atual) =>
       atual.map((item, i) => (i === index ? { ...item, [campo]: valor } : item)),
     );
@@ -49,32 +55,61 @@ export function SimuladorForm({
       ano_operacao: anoOperacao,
       operacao_tipo: "VENDA_ESTADUAL_B2B",
       itens,
+      regime_apuracao: regimeApuracao || null,
     });
   }
 
+  const selectClassName =
+    "flex h-10 w-full rounded-md border border-border bg-surface px-3 py-2 text-sm text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent";
+
   return (
     <form onSubmit={handleSubmit} className="grid gap-4">
-      <div className="grid max-w-xs gap-1">
-        <Label htmlFor="ano-operacao">Ano da operação</Label>
-        <Input
-          id="ano-operacao"
-          type="number"
-          value={anoOperacao}
-          onChange={(e) => setAnoOperacao(Number(e.target.value))}
-        />
+      <div className="grid max-w-md grid-cols-2 gap-2">
+        <div className="grid gap-1">
+          <Label htmlFor="ano-operacao">Ano da operação</Label>
+          <Input
+            id="ano-operacao"
+            type="number"
+            value={anoOperacao}
+            onChange={(e) => setAnoOperacao(Number(e.target.value))}
+          />
+        </div>
+        <div className="grid gap-1">
+          <Label htmlFor="regime-apuracao">
+            Regime de apuração (PIS/COFINS)
+          </Label>
+          <select
+            id="regime-apuracao"
+            className={selectClassName}
+            value={regimeApuracao}
+            onChange={(e) => setRegimeApuracao(e.target.value)}
+          >
+            <option value="">Não informado</option>
+            <option value="NAO_CUMULATIVO">Não cumulativo (Lucro Real)</option>
+            <option value="CUMULATIVO">Cumulativo (Lucro Presumido)</option>
+          </select>
+        </div>
       </div>
 
       <div className="grid gap-3">
         {itens.map((item, index) => (
-          <div key={index} className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-6">
+          <div key={index} className="grid grid-cols-2 gap-2 rounded-md border border-border p-3 sm:grid-cols-7">
             <Input
               placeholder="SKU"
               value={item.sku}
               onChange={(e) => atualizarItem(index, "sku", e.target.value)}
             />
+            <select
+              className={selectClassName}
+              value={item.natureza ?? "MERCADORIA"}
+              onChange={(e) => atualizarItem(index, "natureza", e.target.value)}
+            >
+              <option value="MERCADORIA">Mercadoria</option>
+              <option value="SERVICO">Serviço</option>
+            </select>
             <Input
               placeholder="NCM"
-              value={item.ncm}
+              value={item.ncm ?? ""}
               onChange={(e) => atualizarItem(index, "ncm", e.target.value)}
             />
             <Input

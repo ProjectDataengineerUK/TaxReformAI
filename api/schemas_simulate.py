@@ -477,3 +477,13 @@ class RespostaSimulacao(BaseModel):
     # deste piso simplesmente não vigora fora dessa janela, não é "não
     # encontrado".
     piso_aliquota_ibs: PisoAliquotaIbs | None = None
+    # Citação da fase vigente para CBS/IBS/IS (`regra.fonte_legal`) — igual
+    # para TODOS os itens de um mesmo `ano_operacao`, independente de quantos
+    # existam ou de quais Anexos cada um dispare (diferente da fundamentação
+    # por item, que varia com o Anexo de redução aplicado). Existe para que
+    # o guardrail do sintetizador (`orquestracao/nos/sintetizador.py`) tenha
+    # UMA citação agregada e verificável para o parecer de `/consulta`, sem
+    # precisar exigir que o LLM reproduza a fundamentação de cada item
+    # individualmente — ver Decision 5 do DESIGN_COMPARATIVO_REGIME_ATUAL_
+    # IVA_DUAL.md.
+    fonte_legal_fase: str

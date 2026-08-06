@@ -2,6 +2,7 @@ from decimal import Decimal
 
 import pytest
 
+from api.schemas_simulate import ItemSimulacao
 from motor_calculo.regras_fiscais import AliquotaNaoDisponivelError
 from orquestracao.dependencias import criar_dependencias_fake
 from orquestracao.estado import State
@@ -16,15 +17,44 @@ FONTE_LEGAL_2026 = (
     "LCP 214/2025, arts. 343 e 346 — fase de teste 2026: CBS 0,9% e IBS 0,1% (alíquota estadual)"
 )
 
+# Item MERCADORIA único, SP -> SP (ICMS interno, alíquota geral 18% do
+# RICMS/SP) — cobre o campo novo do regime_vigente sem precisar de db_pool
+# (natureza=MERCADORIA + ncm explícito nunca toca o catálogo empresa_skus).
+_ITEM_PADRAO = ItemSimulacao(
+    sku="SKU-TESTE", ncm="99999999", quantidade=1, valor_unitario=Decimal("1000.00"),
+    uf_origem="SP", uf_destino="SP",
+)
 
-def _state(texto="consulta de teste", ano=2026, valor_base="1000.00"):
-    return State(texto_consulta=texto, ano_operacao=ano, valor_base=Decimal(valor_base))
+
+def _item(valor_base):
+    return ItemSimulacao(
+        sku="SKU-TESTE", ncm="99999999", quantidade=1, valor_unitario=Decimal(valor_base),
+        uf_origem="SP", uf_destino="SP",
+    )
 
 
-def _parecer_fake(valor_base, valor_liquido, valor_cbs, valor_ibs, valor_is="0.00"):
+def _state(texto="consulta de teste", ano=2026, valor_base="1000.00", itens=None):
+    return State(
+        texto_consulta=texto,
+        ano_operacao=ano,
+        valor_base=Decimal(valor_base),
+        itens=itens if itens is not None else [_item(valor_base)],
+        tenant_id="tenant-teste",
+    )
+
+
+def _icms_interno(valor_base: str) -> str:
+    # 18% (SP, RICMS/SP), mesma disciplina de arredondamento do motor
+    # (ROUND_HALF_UP, centavos).
+    return str((Decimal(valor_base) * Decimal("0.18")).quantize(Decimal("0.01")))
+
+
+def _parecer_fake(valor_base, valor_liquido, valor_cbs, valor_ibs, valor_is="0.00", icms_interno=None):
+    icms = icms_interno if icms_interno is not None else _icms_interno(valor_base)
     return (
-        f"## Parecer\n\nValor base: R$ {valor_base}\nValor líquido: R$ {valor_liquido}\n"
+        f"## Parecer\n\nValor bruto total: R$ {valor_base}\nValor líquido: R$ {valor_liquido}\n"
         f"CBS: R$ {valor_cbs}\nIBS: R$ {valor_ibs}\nIS: R$ {valor_is}\n"
+        f"ICMS interno: R$ {icms}\n"
         f"Fundamentação: {FONTE_LEGAL_2026}"
     )
 
@@ -169,12 +199,24 @@ def test_no_deterministico_integra_de_verdade_com_motor_calculo():
     state = _state(valor_base="1000.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
 
-    assert state.resultado_calculo is not None
-    assert state.resultado_calculo.valor_cbs == Decimal("9.00")
-    assert state.resultado_calculo.valor_ibs == Decimal("1.00")
-    assert "2026" in state.resultado_calculo.fonte_legal
+    assert state.resultado_simulacao is not None
+    assert state.resultado_simulacao.resumo_financeiro.total_cbs == Decimal("9.00")
+    assert state.resultado_simulacao.resumo_financeiro.total_ibs == Decimal("1.00")
+    assert "2026" in state.resultado_simulacao.fonte_legal_fase
+
+
+def test_no_deterministico_reflete_itens_no_regime_vigente():
+    deps = _deps_extrator_sem_divergencia()
+    state = _state(valor_base="1000.00", ano=2026)
+    state.texto_mascarado = state.texto_consulta
+    state = no_extrator_regras(state, deps)
+    state = no_deterministico(state, deps)
+
+    regime = state.resultado_simulacao.regime_vigente
+    assert regime.total_icms_interno == Decimal("180.00")
+    assert len(state.resultado_simulacao.itens_regime_vigente) == 1
 
 
 def test_no_deterministico_propaga_erro_para_fase_sem_aliquota():
@@ -184,7 +226,7 @@ def test_no_deterministico_propaga_erro_para_fase_sem_aliquota():
     state = no_extrator_regras(state, deps)
 
     with pytest.raises(AliquotaNaoDisponivelError):
-        no_deterministico(state)
+        no_deterministico(state, deps)
 
 
 def test_no_sintetizador_gera_parecer_com_fonte_legal_e_sem_marcador_fake():
@@ -199,7 +241,7 @@ def test_no_sintetizador_gera_parecer_com_fonte_legal_e_sem_marcador_fake():
     state = _state(valor_base="1000.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
     state = no_sintetizador(state, deps)
 
     assert state.parecer_final is not None
@@ -217,7 +259,7 @@ def test_no_sintetizador_guardrail_rejeita_parecer_sem_valor_liquido_exato():
     state = _state(valor_base="1000.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
 
     with pytest.raises(LLMRespostaInconsistenteError):
         no_sintetizador(state, deps)
@@ -240,7 +282,7 @@ def test_no_sintetizador_guardrail_rejeita_parecer_com_fonte_legal_alterada():
     state = _state(valor_base="1000.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
 
     with pytest.raises(LLMRespostaInconsistenteError):
         no_sintetizador(state, deps)
@@ -259,8 +301,8 @@ def test_no_sintetizador_aceita_fonte_legal_reformatada_em_markdown():
                 "A simulação tem como base o disposto na **LCP 214/2025, arts. 343 e 346**, "
                 "que estabelecem, para a **fase de teste do ano de 2026**, as seguintes "
                 "alíquotas: **CBS**: 0,9% e **IBS**: 0,1% (alíquota estadual).\n\n"
-                "Valor base: R$ 1000.00\nValor líquido: R$ 990.00\n"
-                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\n"
+                "Valor bruto total: R$ 1000.00\nValor líquido: R$ 990.00\n"
+                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\nICMS interno: R$ 180.00\n"
             )
         }
     )
@@ -268,7 +310,7 @@ def test_no_sintetizador_aceita_fonte_legal_reformatada_em_markdown():
     state = _state(valor_base="1000.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
 
     state = no_sintetizador(state, deps)
     assert state.parecer_final is not None
@@ -279,7 +321,8 @@ def test_no_sintetizador_aceita_valor_com_separador_decimal_pt_br():
         respostas_por_modelo={
             MODELO_SONNET: (
                 "## Parecer\n\nValor base: R$ 500,00\nValor líquido: R$ 495,00\n"
-                f"CBS: R$ 4,50\nIBS: R$ 0,50\nIS: R$ 0,00\nFundamentação: {FONTE_LEGAL_2026}"
+                "CBS: R$ 4,50\nIBS: R$ 0,50\nIS: R$ 0,00\nICMS interno: R$ 90,00\n"
+                f"Fundamentação: {FONTE_LEGAL_2026}"
             )
         }
     )
@@ -287,7 +330,7 @@ def test_no_sintetizador_aceita_valor_com_separador_decimal_pt_br():
     state = _state(valor_base="500.00", ano=2026)
     state.texto_mascarado = state.texto_consulta
     state = no_extrator_regras(state, deps)
-    state = no_deterministico(state)
+    state = no_deterministico(state, deps)
 
     state = no_sintetizador(state, deps)
     assert state.parecer_final is not None
