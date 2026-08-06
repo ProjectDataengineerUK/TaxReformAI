@@ -1,0 +1,73 @@
+name: Limpar Jobs Presos (sku_upload_jobs)
+
+# Marca como ERRO os 2 jobs órfãos identificados por
+# diagnosticar_jobs_presos.yml (df4900b9-..., 3793a83c-...) — escreve em
+# produção, por isso exige confirmação explícita. Descartável após o uso.
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Digite exatamente "LIMPAR" para confirmar'
+        required: true
+        default: ""
+
+env:
+  PYTHONPATH: ${{ github.workspace }}
+  INSTANCE_CONNECTION_NAME: taxreformai-dev:southamerica-east1:taxreformai-pg
+
+jobs:
+  limpar:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Guarda de confirmação
+        if: ${{ inputs.confirm != 'LIMPAR' }}
+        run: |
+          echo 'confirm != "LIMPAR". Nada foi executado contra o banco.'
+          exit 1
+
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar psycopg
+        run: pip install "psycopg[binary]"
+
+      - uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - uses: google-github-actions/setup-gcloud@v2
+
+      - name: Ler senha do papel de runtime no Secret Manager
+        run: |
+          echo "PG_APP_PASSWORD=$(gcloud secrets versions access latest --secret=taxreformai-pg-app-password --project=taxreformai-dev)" >> "$GITHUB_ENV"
+
+      - name: Baixar Cloud SQL Auth Proxy
+        run: |
+          curl -sSL -o cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.23.0/cloud-sql-proxy.linux.amd64
+          echo "cd689d582b826fa5bc82c01ccc14e45a58200c3cefbf923ce96c422825e4e6f6  cloud-sql-proxy" | sha256sum -c -
+          chmod +x cloud-sql-proxy
+
+      - name: Iniciar o proxy em background
+        run: |
+          ./cloud-sql-proxy --port 5432 "$INSTANCE_CONNECTION_NAME" &
+          echo "PROXY_PID=$!" >> "$GITHUB_ENV"
+          for _ in $(seq 1 30); do
+            (echo > /dev/tcp/127.0.0.1/5432) 2>/dev/null && exit 0
+            sleep 1
+          done
+          echo "Proxy não abriu a porta 5432 em 30s."
+          exit 1
+
+      - name: Marcar jobs órfãos como ERRO (papel de runtime)
+        run: |
+          export DATABASE_URL_APP="postgresql://taxreformai_app:${PG_APP_PASSWORD}@127.0.0.1:5432/taxreformai"
+          python scripts/limpar_jobs_presos.py
+
+      - name: Encerrar o proxy
+        if: always()
+        run: kill "$PROXY_PID" 2>/dev/null || true
