@@ -1,6 +1,10 @@
 import Link from "next/link";
 
 import { ArquiteturaDiagrama } from "@/components/ArquiteturaDiagrama";
+import { EstatisticasFaixa } from "@/components/EstatisticasFaixa";
+import { Glossario } from "@/components/Glossario";
+import { HistoriasReais } from "@/components/HistoriasReais";
+import { Metodologia } from "@/components/Metodologia";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 
 const RECURSOS = [
@@ -40,6 +44,7 @@ export default function LandingPage() {
             Entrar com Google
           </Link>
         </div>
+        <EstatisticasFaixa />
       </section>
 
       <section className="grid gap-4 sm:grid-cols-3">
@@ -67,6 +72,45 @@ export default function LandingPage() {
         <Card>
           <CardContent className="overflow-x-auto pt-4">
             <ArquiteturaDiagrama />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-2xl font-bold text-foreground">Histórias reais de engenharia</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Cada uma aconteceu em produção, com evidência real — log, teste ou usuário reportando.
+            Não é cenário hipotético.
+          </p>
+        </div>
+        <HistoriasReais />
+      </section>
+
+      <section className="grid gap-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-2xl font-bold text-foreground">Como o time trabalha</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Cada feature passa pelo mesmo funil, sem atalho — mesmo numa sessão de poucas horas.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <Metodologia />
+          </CardContent>
+        </Card>
+      </section>
+
+      <section className="grid gap-6">
+        <div className="mx-auto max-w-2xl text-center">
+          <h2 className="text-2xl font-bold text-foreground">Glossário rápido</h2>
+          <p className="mt-2 text-sm text-muted-foreground">
+            Para quem não vive o dia a dia tributário brasileiro.
+          </p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <Glossario />
           </CardContent>
         </Card>
       </section>
