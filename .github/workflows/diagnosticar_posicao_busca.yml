@@ -1,0 +1,29 @@
+name: Diagnosticar Posição na Busca Híbrida
+
+# Só leitura — mede em que posição o chunk correto aparece na busca híbrida
+# real, sem filtro de documento (condição real de pesquisador_legal.py),
+# pra decidir se um reranking de segundo estágio vale o custo. Descartável
+# após o uso.
+on:
+  workflow_dispatch: {}
+
+jobs:
+  medir:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "pip"
+
+      - name: Instalar dependências
+        run: pip install -r requirements.txt
+
+      - name: Medir posição do chunk correto
+        env:
+          QDRANT_URL: ${{ secrets.QDRANT_URL }}
+          QDRANT_API_KEY: ${{ secrets.QDRANT_API_KEY }}
+          PYTHONPATH: ${{ github.workspace }}
+        run: python scripts/medir_posicao_busca_hibrida.py
