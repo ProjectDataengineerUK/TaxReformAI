@@ -634,11 +634,16 @@ jobs:
           # desistia (curl exit 28) antes do servidor responder, mesmo quando
           # a resposta final era 200. Instâncias já aquecidas respondem em
           # ~15-20s; só a primeira chamada após um deploy paga esse custo.
+          # COMPARATIVO_REGIME_ATUAL_IVA_DUAL: PayloadConsulta perdeu
+          # valor_base (campo manual) e ganhou itens — mesmo shape de
+          # ItemSimulacao do /v1/tax/simulate, paridade total de cálculo.
           HTTP=$(curl -sS -o /tmp/query.json -w '%{http_code}' --max-time 120 \
             -X POST "${API_URL}/v1/tax/query" \
             -H "X-API-Key: ${CHAVE}" -H 'Content-Type: application/json' \
-            -d "{\"tenant_id\":\"${TENANT}\",\"texto_consulta\":\"Quanto de CBS incide sobre uma venda de R\$ 1000,00 em 2026?\",
-                 \"ano_operacao\":2026,\"valor_base\":\"1000.00\"}")
+            -d "{\"texto_consulta\":\"Quanto de CBS incide sobre uma venda de R\$ 1000,00 em 2026?\",
+                 \"ano_operacao\":2026,
+                 \"itens\":[{\"sku\":\"SMOKE-QUERY\",\"ncm\":\"22030000\",\"quantidade\":1,
+                             \"valor_unitario\":\"1000.00\",\"uf_origem\":\"SP\",\"uf_destino\":\"RJ\"}]}")
           if [ "$HTTP" != "200" ]; then
             echo "FALHA: /v1/tax/query devolveu $HTTP (esperado 200)."
             cat /tmp/query.json
