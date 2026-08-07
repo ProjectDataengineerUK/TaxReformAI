@@ -334,3 +334,50 @@ def test_no_sintetizador_aceita_valor_com_separador_decimal_pt_br():
 
     state = no_sintetizador(state, deps)
     assert state.parecer_final is not None
+
+
+def test_no_sintetizador_aceita_fonte_legal_sem_todos_os_artigos_citados():
+    # Achado real (2026-08-07, primeiro deploy pós-COMPARATIVO_REGIME_ATUAL_
+    # IVA_DUAL): fonte_legal_fase cita 2 artigos ("arts. 343 e 346") e o
+    # Sonnet real, chamado duas vezes com o MESMO prompt, às vezes cita só
+    # um. O que protege contra fabricação é o número da lei + ano, não cada
+    # artigo sobrevivendo à parafraseação do modelo.
+    cliente = ClienteLLMFake(
+        respostas_por_modelo={
+            MODELO_SONNET: (
+                "## Parecer\n\nValor bruto total: R$ 1000.00\nValor líquido: R$ 990.00\n"
+                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\nICMS interno: R$ 180.00\n"
+                "Fundamentação: LCP 214/2025, art. 343, fase de teste de 2026."
+            )
+        }
+    )
+    deps = criar_dependencias_fake(cliente_llm=cliente)
+    state = _state(valor_base="1000.00", ano=2026)
+    state.texto_mascarado = state.texto_consulta
+    state = no_extrator_regras(state, deps)
+    state = no_deterministico(state, deps)
+
+    state = no_sintetizador(state, deps)
+    assert state.parecer_final is not None
+
+
+def test_no_sintetizador_guardrail_rejeita_fonte_legal_de_outra_lei():
+    # A tolerância a artigos parafraseados não pode virar tolerância a lei
+    # ou ano diferentes — isso ainda é fabricação.
+    cliente = ClienteLLMFake(
+        respostas_por_modelo={
+            MODELO_SONNET: (
+                "## Parecer\n\nValor bruto total: R$ 1000.00\nValor líquido: R$ 990.00\n"
+                "CBS: R$ 9.00\nIBS: R$ 1.00\nIS: R$ 0.00\nICMS interno: R$ 180.00\n"
+                "Fundamentação: Lei 99/1999, art. 1."
+            )
+        }
+    )
+    deps = criar_dependencias_fake(cliente_llm=cliente)
+    state = _state(valor_base="1000.00", ano=2026)
+    state.texto_mascarado = state.texto_consulta
+    state = no_extrator_regras(state, deps)
+    state = no_deterministico(state, deps)
+
+    with pytest.raises(LLMRespostaInconsistenteError):
+        no_sintetizador(state, deps)

@@ -28,12 +28,27 @@ def _fonte_legal_aparece(fonte_legal: str, texto: str) -> bool:
     # antes, na quota do Vertex AI): exigir a frase inteira como substring
     # rejeitava até respostas corretas — o Sonnet reformata a citação em
     # Markdown/prosa (lista com marcadores, negrito, sem o travessão/dois-
-    # pontos originais) mesmo instruído a reproduzi-la exatamente. Em vez da
-    # frase inteira, exige que TODOS os identificadores numéricos da citação
-    # (número da lei, artigos, ano) apareçam no texto gerado — ainda barra uma
-    # fundamentação fabricada (números diferentes não bateriam), só deixa de
-    # exigir a formatação literal.
-    identificadores = [n for n in re.findall(r"\d+", fonte_legal) if len(n) >= 2]
+    # pontos originais) mesmo instruído a reproduzi-la exatamente.
+    #
+    # Segundo achado real (2026-08-07, primeiro deploy de
+    # COMPARATIVO_REGIME_ATUAL_IVA_DUAL): `fonte_legal_fase` cita DOIS
+    # artigos ("LCP 214/2025, arts. 343 e 346..."), e exigir TODOS os
+    # números (lei, ano E cada artigo) rejeitava intermitentemente respostas
+    # reais do Sonnet — o mesmo código, chamado duas vezes com o mesmo
+    # prompt, passou numa vez e falhou na outra (variação de prosa entre
+    # chamadas, não um bug determinístico). O que de fato protege contra
+    # fabricação é o NÚMERO DA LEI e o ANO — uma citação inventada citaria
+    # outra lei ou outro ano; exigir também que artigos específicos
+    # sobrevivam à parafraseação do modelo é frágil demais para o ganho de
+    # segurança que dá. Extrai só o par "NNN/AAAA" (número da lei/ano);
+    # cai para o comportamento antigo (todos os números) se esse padrão não
+    # for encontrado, nunca afrouxando silenciosamente para "nenhuma
+    # verificação".
+    lei_ano = re.search(r"(\d+)/(\d+)", fonte_legal)
+    if lei_ano:
+        identificadores = list(lei_ano.groups())
+    else:
+        identificadores = [n for n in re.findall(r"\d+", fonte_legal) if len(n) >= 2]
     if not identificadores:
         return fonte_legal in texto
     return all(identificador in texto for identificador in identificadores)
