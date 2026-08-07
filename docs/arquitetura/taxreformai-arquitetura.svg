@@ -1,0 +1,424 @@
+<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"
+     viewBox="0 0 1480 760" font-family="-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif"
+     role="img" aria-labelledby="titulo descricao">
+  <title id="titulo">TaxReformAI — Diagrama de arquitetura</title>
+  <desc id="descricao">
+    Arquitetura em seis grupos: Fontes de dados (externas) alimentam, via Ingestão, o Armazenamento
+    dentro do projeto GCP taxreformai-dev (southamerica-east1). A Orquestração de IA lê o Armazenamento
+    (Qdrant, busca híbrida) e alimenta a API, que também lê Postgres diretamente para regras determinísticas
+    (Anexos, IPI, SKUs), sem IA. A API serve o Frontend, protegido por login Google.
+  </desc>
+
+  <defs>
+    <!-- ============ ícones (grade 24x24, stroke currentColor) ============ -->
+    <symbol id="ic-globe" viewBox="0 0 24 24">
+      <circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <ellipse cx="12" cy="12" rx="4" ry="9" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M3 12h18M4.5 7.5h15M4.5 16.5h15" stroke="currentColor" stroke-width="1.6" fill="none"/>
+    </symbol>
+    <symbol id="ic-download" viewBox="0 0 24 24">
+      <path d="M12 3v11m0 0-4-4m4 4 4-4" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"/>
+      <path d="M4 16v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-tree" viewBox="0 0 24 24">
+      <circle cx="12" cy="4.5" r="2" fill="currentColor"/>
+      <circle cx="5" cy="19" r="2" fill="currentColor"/>
+      <circle cx="12" cy="19" r="2" fill="currentColor"/>
+      <circle cx="19" cy="19" r="2" fill="currentColor"/>
+      <path d="M12 6.5v5M12 11.5 5 17M12 11.5v5.5M12 11.5l7 5.5" fill="none" stroke="currentColor" stroke-width="1.5"/>
+    </symbol>
+    <symbol id="ic-layers" viewBox="0 0 24 24">
+      <path d="M12 3 2 8l10 5 10-5-10-5Z" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
+      <path d="M2 13l10 5 10-5M2 8l10 5 10-5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" opacity="0" />
+      <path d="M2 13.5 12 18.5 22 13.5" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-vector" viewBox="0 0 24 24">
+      <circle cx="5" cy="6" r="1.8" fill="currentColor"/>
+      <circle cx="19" cy="6" r="1.8" fill="currentColor"/>
+      <circle cx="12" cy="13" r="1.8" fill="currentColor"/>
+      <circle cx="6" cy="19" r="1.8" fill="currentColor"/>
+      <circle cx="18" cy="19" r="1.8" fill="currentColor"/>
+      <path d="M5 6l7 7M19 6l-7 7M12 13 6 19M12 13l6 6" stroke="currentColor" stroke-width="1.3" fill="none"/>
+    </symbol>
+    <symbol id="ic-db" viewBox="0 0 24 24">
+      <ellipse cx="12" cy="5.5" rx="8" ry="3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M4 5.5v13c0 1.66 3.58 3 8 3s8-1.34 8-3v-13" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M4 12c0 1.66 3.58 3 8 3s8-1.34 8-3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+    </symbol>
+    <symbol id="ic-bucket" viewBox="0 0 24 24">
+      <path d="M4 7h16l-1.6 12.2a2 2 0 0 1-2 1.8H7.6a2 2 0 0 1-2-1.8L4 7Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M2.5 7h19M8 4h8" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-grid" viewBox="0 0 24 24">
+      <rect x="3" y="3" width="18" height="18" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M3 9h18M3 15h18M9 3v18M15 3v18" stroke="currentColor" stroke-width="1.3" fill="none"/>
+    </symbol>
+    <symbol id="ic-chip" viewBox="0 0 24 24">
+      <rect x="6" y="6" width="12" height="12" rx="1.5" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="12" cy="12" r="2.6" fill="none" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M9 2v3M12 2v3M15 2v3M9 19v3M12 19v3M15 19v3M2 9h3M2 12h3M2 15h3M19 9h3M19 12h3M19 15h3"
+            stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-container" viewBox="0 0 24 24">
+      <path d="M12 3 3 7.5 12 12l9-4.5L12 3Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M3 7.5v9L12 21l9-4.5v-9M12 12v9" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="ic-queue" viewBox="0 0 24 24">
+      <rect x="3" y="5" width="18" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <rect x="3" y="10.5" width="18" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <rect x="3" y="16" width="12" height="4" rx="1" fill="none" stroke="currentColor" stroke-width="1.5"/>
+      <path d="M18.5 16.2a2.6 2.6 0 1 0 0 5.2 2.6 2.6 0 0 0 0-5.2Zm0 1.1v1.5l1 .6" stroke="currentColor" stroke-width="1.1" fill="none" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-browser" viewBox="0 0 24 24">
+      <rect x="2.5" y="4" width="19" height="16" rx="2" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M2.5 8.5h19" stroke="currentColor" stroke-width="1.6"/>
+      <circle cx="5.3" cy="6.2" r=".8" fill="currentColor"/>
+      <circle cx="7.6" cy="6.2" r=".8" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-shield" viewBox="0 0 24 24">
+      <path d="M12 2.5 4 6v6c0 5 3.4 8.5 8 9.5 4.6-1 8-4.5 8-9.5V6l-8-3.5Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M8.5 12.2 11 14.7l5-5.4" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/>
+    </symbol>
+    <symbol id="ic-gauge" viewBox="0 0 24 24">
+      <path d="M4 16a8 8 0 1 1 16 0" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <path d="M12 16 16 9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+      <circle cx="12" cy="16" r="1.3" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-calc" viewBox="0 0 24 24">
+      <rect x="5" y="2.5" width="14" height="19" rx="1.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <rect x="7.3" y="5" width="9.4" height="3.6" rx=".6" fill="none" stroke="currentColor" stroke-width="1.3"/>
+      <circle cx="8.4" cy="12.3" r="1" fill="currentColor"/>
+      <circle cx="12" cy="12.3" r="1" fill="currentColor"/>
+      <circle cx="15.6" cy="12.3" r="1" fill="currentColor"/>
+      <circle cx="8.4" cy="15.8" r="1" fill="currentColor"/>
+      <circle cx="12" cy="15.8" r="1" fill="currentColor"/>
+      <circle cx="15.6" cy="15.8" r="1" fill="currentColor"/>
+      <circle cx="8.4" cy="19.1" r="1" fill="currentColor"/>
+      <circle cx="12" cy="19.1" r="1" fill="currentColor"/>
+      <circle cx="15.6" cy="19.1" r="1" fill="currentColor"/>
+    </symbol>
+    <symbol id="ic-ledger" viewBox="0 0 24 24">
+      <path d="M6 2.5h9l4 4V21a1 1 0 0 1-1 1H6a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M15 2.5V7h4M8 12h8M8 15.5h8M8 19h5" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-doc" viewBox="0 0 24 24">
+      <path d="M7 2.5h7l4 4V21a1 1 0 0 1-1 1H7a1 1 0 0 1-1-1V3.5a1 1 0 0 1 1-1Z" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+      <path d="M14 2.5V7h4" stroke="currentColor" stroke-width="1.4"/>
+      <path d="M9 11.5h6M9 14.5h6M9 17.5h4" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/>
+    </symbol>
+    <symbol id="ic-key" viewBox="0 0 24 24">
+      <circle cx="8" cy="8" r="4.3" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M11 11 20 20m-5 0 2.2-2.2M17.5 15.5l2.2-2.2" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </symbol>
+
+    <marker id="arrow" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="7.5" markerHeight="7.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#12d393"/>
+    </marker>
+    <marker id="arrow-d" viewBox="0 0 10 10" refX="8.5" refY="5" markerWidth="6.5" markerHeight="6.5" orient="auto-start-reverse">
+      <path d="M0 0 L10 5 L0 10 z" fill="#5b6478"/>
+    </marker>
+
+    <filter id="card-shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="1.5" stdDeviation="2.4" flood-color="#000000" flood-opacity="0.45"/>
+    </filter>
+  </defs>
+
+  <style>
+    .bg { fill: #101219; }
+    .boundary { fill: none; stroke: #3c4353; stroke-width: 1.6; stroke-dasharray: 6 5; }
+    .boundary-label { fill: #12d393; font-size: 12px; font-weight: 700; letter-spacing: .05em; }
+    .card { fill: #181c25; stroke: #2b303b; stroke-width: 1; filter: url(#card-shadow); }
+    .card-title { fill: #f3f5f7; font-size: 11.6px; font-weight: 700; }
+    .card-sub { fill: #8f99ab; font-size: 9.3px; }
+    .lane-title { fill: #f3f5f7; font-size: 14.5px; font-weight: 800; letter-spacing: -.01em; }
+    .lane-kicker { fill: #12d393; font-size: 9.6px; font-weight: 700; letter-spacing: .09em; text-transform: uppercase; }
+    .flow-label { fill: #a8b2c2; font-size: 9.6px; font-weight: 600; }
+    .badge { stroke: none; }
+    .num { fill: #0c0f14; font-size: 10px; font-weight: 800; }
+  </style>
+
+  <rect class="bg" x="0" y="0" width="1480" height="760"/>
+
+  <!-- ======================= título ======================= -->
+  <text x="30" y="34" font-size="20" font-weight="800" fill="#f3f5f7">TaxReformAI — arquitetura em produção</text>
+  <text x="30" y="53" font-size="12" fill="#8f99ab">GCP · southamerica-east1 · Cloud Run + Cloud SQL + Qdrant Cloud + BigQuery + Cloud Tasks + Claude (Vertex AI / API direta)</text>
+
+  <!-- ======================= boundary do projeto GCP ======================= -->
+  <rect class="boundary" x="248" y="86" width="1202" height="634" rx="16"/>
+  <rect x="258" y="76" width="220" height="20" rx="5" fill="#101219"/>
+  <text class="boundary-label" x="266" y="90">PROJETO GCP · taxreformai-dev</text>
+
+  <!-- ======================= LANE 1 — Fontes de dados (externo) ======================= -->
+  <g>
+    <text class="lane-kicker" x="30" y="106">externo · legislação pública</text>
+    <text class="lane-title" x="30" y="128">Fontes de dados</text>
+
+    <!-- card template: icon badge (36x36, amber #D97706/rgba(245,158,11,0.16)) + title/sub -->
+    <g transform="translate(30,140)" filter="none">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(245,158,11,0.16)"/>
+      <use href="#ic-doc" x="18" y="15" width="20" height="20" color="#FBBF24"/>
+      <text class="card-title" x="56" y="24">Planalto (DOU)</text>
+      <text class="card-sub" x="56" y="38">LCP 214/2025 · 3.417 chunks</text>
+    </g>
+    <g transform="translate(30,200)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(245,158,11,0.16)"/>
+      <use href="#ic-doc" x="18" y="15" width="20" height="20" color="#FBBF24"/>
+      <text class="card-title" x="56" y="24">CGIBS</text>
+      <text class="card-sub" x="56" y="38">Resolução 6/2026 · 3.443 chunks</text>
+    </g>
+    <g transform="translate(30,260)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(245,158,11,0.16)"/>
+      <use href="#ic-doc" x="18" y="15" width="20" height="20" color="#FBBF24"/>
+      <text class="card-title" x="56" y="24">RFB (SIJUT2)</text>
+      <text class="card-sub" x="56" y="38">Soluções de Consulta · 28</text>
+    </g>
+    <g transform="translate(30,320)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(245,158,11,0.16)"/>
+      <use href="#ic-doc" x="18" y="15" width="20" height="20" color="#FBBF24"/>
+      <text class="card-title" x="56" y="24">TCU</text>
+      <text class="card-sub" x="56" y="38">Resolução 388/2026 · 27</text>
+    </g>
+    <g transform="translate(30,392)">
+      <rect x="10" y="0" width="36" height="36" rx="9" fill="rgba(245,158,11,0.16)"/>
+      <use href="#ic-globe" x="18" y="8" width="20" height="20" color="#FBBF24"/>
+      <text class="card-sub" x="56" y="16" font-style="italic">4 fontes · 6.866 pontos</text>
+      <text class="card-sub" x="56" y="29" font-style="italic">indexados no total</text>
+    </g>
+  </g>
+
+  <!-- ======================= LANE 2 — Ingestão ======================= -->
+  <g>
+    <text class="lane-kicker" x="272" y="106">workflow_dispatch · em lote</text>
+    <text class="lane-title" x="272" y="128">Ingestão</text>
+
+    <g transform="translate(272,140)">
+      <rect class="card" width="184" height="46" rx="10"/>
+      <rect x="9" y="6" width="34" height="34" rx="8" fill="rgba(251,146,60,0.16)"/>
+      <use href="#ic-download" x="16" y="13" width="20" height="20" color="#FB923C"/>
+      <text class="card-title" x="52" y="22">Scraper</text>
+      <text class="card-sub" x="52" y="35">Planalto + TCU</text>
+    </g>
+    <g transform="translate(272,196)">
+      <rect class="card" width="184" height="46" rx="10"/>
+      <rect x="9" y="6" width="34" height="34" rx="8" fill="rgba(251,146,60,0.16)"/>
+      <use href="#ic-tree" x="16" y="13" width="20" height="20" color="#FB923C"/>
+      <text class="card-title" x="52" y="22">Parser AST</text>
+      <text class="card-sub" x="52" y="35">Lei → Artigo → Inciso</text>
+    </g>
+    <g transform="translate(272,252)">
+      <rect class="card" width="184" height="46" rx="10"/>
+      <rect x="9" y="6" width="34" height="34" rx="8" fill="rgba(251,146,60,0.16)"/>
+      <use href="#ic-layers" x="16" y="13" width="20" height="20" color="#FB923C"/>
+      <text class="card-title" x="52" y="22">Chunker</text>
+      <text class="card-sub" x="52" y="35">parent-child</text>
+    </g>
+    <g transform="translate(272,308)">
+      <rect class="card" width="184" height="46" rx="10"/>
+      <rect x="9" y="6" width="34" height="34" rx="8" fill="rgba(251,146,60,0.16)"/>
+      <use href="#ic-vector" x="16" y="13" width="20" height="20" color="#FB923C"/>
+      <text class="card-title" x="52" y="22">Embedder híbrido</text>
+      <text class="card-sub" x="52" y="35">e5-large + BM25</text>
+    </g>
+    <g transform="translate(272,364)">
+      <rect width="184" height="34" rx="9" fill="none" stroke="#5b4a2e" stroke-dasharray="3 3"/>
+      <text class="card-sub" x="12" y="15" font-style="italic">Cloud Composer</text>
+      <text class="card-sub" x="12" y="27" font-style="italic">provisionado sob demanda</text>
+    </g>
+  </g>
+
+  <!-- ======================= LANE 3 — Armazenamento ======================= -->
+  <g>
+    <text class="lane-kicker" x="494" y="106">vetorial · relacional · objeto</text>
+    <text class="lane-title" x="494" y="128">Armazenamento</text>
+
+    <g transform="translate(494,140)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(167,139,250,0.16)"/>
+      <use href="#ic-vector" x="18" y="15" width="20" height="20" color="#C4B5FD"/>
+      <text class="card-title" x="56" y="24">Qdrant Cloud</text>
+      <text class="card-sub" x="56" y="38">busca híbrida · 6.866 pontos</text>
+    </g>
+    <g transform="translate(494,200)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(167,139,250,0.16)"/>
+      <use href="#ic-db" x="18" y="15" width="20" height="20" color="#C4B5FD"/>
+      <text class="card-title" x="56" y="24">Cloud SQL</text>
+      <text class="card-sub" x="56" y="38">Postgres 16 · RLS multi-tenant</text>
+    </g>
+    <g transform="translate(494,260)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(167,139,250,0.16)"/>
+      <use href="#ic-bucket" x="18" y="15" width="20" height="20" color="#C4B5FD"/>
+      <text class="card-title" x="56" y="24">Cloud Storage</text>
+      <text class="card-sub" x="56" y="38">documentos brutos</text>
+    </g>
+    <g transform="translate(494,320)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(167,139,250,0.16)"/>
+      <use href="#ic-grid" x="18" y="15" width="20" height="20" color="#C4B5FD"/>
+      <text class="card-title" x="56" y="24">BigQuery</text>
+      <text class="card-sub" x="56" y="38">espelho analítico</text>
+    </g>
+  </g>
+
+  <!-- ======================= LANE 4 — Orquestração & IA ======================= -->
+  <g>
+    <text class="lane-kicker" x="716" y="106">Claude · Vertex AI ou API direta</text>
+    <text class="lane-title" x="716" y="128">Orquestração &amp; IA</text>
+
+    <g transform="translate(716,140)">
+      <rect class="card" width="266" height="42" rx="10"/>
+      <circle cx="28" cy="21" r="12" fill="#93C5FD"/>
+      <text class="num" x="28" y="25" text-anchor="middle" fill="#93C5FD">1</text>
+      <text class="card-title" x="50" y="18">Classificador · Haiku</text>
+      <text class="card-sub" x="50" y="32">mascara PII antes de tudo</text>
+    </g>
+    <path d="M849 182 849 190" stroke="#4b5468" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <g transform="translate(716,192)">
+      <rect class="card" width="266" height="42" rx="10"/>
+      <circle cx="28" cy="21" r="12" fill="#93C5FD"/>
+      <text class="num" x="28" y="25" text-anchor="middle" fill="#93C5FD">2</text>
+      <text class="card-title" x="50" y="18">Pesquisador legal</text>
+      <text class="card-sub" x="50" y="32">busca híbrida real no Qdrant</text>
+    </g>
+    <path d="M849 234 849 242" stroke="#4b5468" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <g transform="translate(716,244)">
+      <rect class="card" width="266" height="42" rx="10"/>
+      <circle cx="28" cy="21" r="12" fill="#93C5FD"/>
+      <text class="num" x="28" y="25" text-anchor="middle" fill="#93C5FD">3</text>
+      <text class="card-title" x="50" y="18">Extrator de regras · Sonnet</text>
+      <text class="card-sub" x="50" y="32">campo estruturado sempre vence</text>
+    </g>
+    <path d="M849 286 849 294" stroke="#4b5468" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <g transform="translate(716,296)">
+      <rect class="card" width="266" height="42" rx="10"/>
+      <circle cx="28" cy="21" r="12" fill="#93C5FD"/>
+      <text class="num" x="28" y="25" text-anchor="middle" fill="#93C5FD">4</text>
+      <text class="card-title" x="50" y="18">Determinístico</text>
+      <text class="card-sub" x="50" y="32">motor_calculo · zero LLM aqui</text>
+    </g>
+    <path d="M849 338 849 346" stroke="#4b5468" stroke-width="1.4" marker-end="url(#arrow)"/>
+    <g transform="translate(716,348)">
+      <rect class="card" width="266" height="42" rx="10"/>
+      <circle cx="28" cy="21" r="12" fill="#93C5FD"/>
+      <text class="num" x="28" y="25" text-anchor="middle" fill="#93C5FD">5</text>
+      <text class="card-title" x="50" y="18">Sintetizador · Sonnet</text>
+      <text class="card-sub" x="50" y="32">guardrail: só totais agregados</text>
+    </g>
+
+    <g transform="translate(716,406)">
+      <rect width="266" height="46" rx="10" fill="none" stroke="#3b4258" stroke-dasharray="3 3"/>
+      <rect x="9" y="6" width="34" height="34" rx="8" fill="rgba(96,165,250,0.16)"/>
+      <use href="#ic-chip" x="16" y="13" width="20" height="20" color="#93C5FD"/>
+      <text class="card-title" x="52" y="22">Cliente LLM</text>
+      <text class="card-sub" x="52" y="36">AnthropicVertex ou Anthropic direta</text>
+    </g>
+  </g>
+
+  <!-- ======================= LANE 5 — API & processamento ======================= -->
+  <g>
+    <text class="lane-kicker" x="1010" y="106">Cloud Run · FastAPI</text>
+    <text class="lane-title" x="1010" y="128">API &amp; processamento</text>
+
+    <g transform="translate(1010,140)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(45,212,191,0.16)"/>
+      <use href="#ic-container" x="18" y="15" width="20" height="20" color="#5EEAD4"/>
+      <text class="card-title" x="56" y="24">FastAPI</text>
+      <text class="card-sub" x="56" y="38">/simulate · /query · /skus</text>
+    </g>
+    <g transform="translate(1010,200)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(45,212,191,0.16)"/>
+      <use href="#ic-calc" x="18" y="15" width="20" height="20" color="#5EEAD4"/>
+      <text class="card-title" x="56" y="24">Motor de cálculo</text>
+      <text class="card-sub" x="56" y="38">Python puro, determinístico</text>
+    </g>
+    <g transform="translate(1010,260)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(45,212,191,0.16)"/>
+      <use href="#ic-queue" x="18" y="15" width="20" height="20" color="#5EEAD4"/>
+      <text class="card-title" x="56" y="24">Cloud Tasks</text>
+      <text class="card-sub" x="56" y="38">upload de SKUs assíncrono</text>
+    </g>
+    <g transform="translate(1010,320)">
+      <rect class="card" width="188" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(45,212,191,0.16)"/>
+      <use href="#ic-ledger" x="18" y="15" width="20" height="20" color="#5EEAD4"/>
+      <text class="card-title" x="56" y="24">Audit log</text>
+      <text class="card-sub" x="56" y="38">todo parecer gravado</text>
+    </g>
+  </g>
+
+  <!-- ======================= LANE 6 — Frontend ======================= -->
+  <g>
+    <text class="lane-kicker" x="1232" y="106">Cloud Run · Next.js</text>
+    <text class="lane-title" x="1232" y="128">Frontend</text>
+
+    <g transform="translate(1232,140)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(251,113,133,0.16)"/>
+      <use href="#ic-browser" x="18" y="15" width="20" height="20" color="#FDA4AF"/>
+      <text class="card-title" x="56" y="24">Simulador</text>
+      <text class="card-sub" x="56" y="38">formulário estruturado por NCM</text>
+    </g>
+    <g transform="translate(1232,200)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(251,113,133,0.16)"/>
+      <use href="#ic-browser" x="18" y="15" width="20" height="20" color="#FDA4AF"/>
+      <text class="card-title" x="56" y="24">Consulta conversacional</text>
+      <text class="card-sub" x="56" y="38">itemizada, paridade com simulador</text>
+    </g>
+    <g transform="translate(1232,260)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(251,113,133,0.16)"/>
+      <use href="#ic-shield" x="18" y="15" width="20" height="20" color="#FDA4AF"/>
+      <text class="card-title" x="56" y="24">Login Google</text>
+      <text class="card-sub" x="56" y="38">Auth.js · allowlist de e-mail</text>
+    </g>
+    <g transform="translate(1232,320)">
+      <rect class="card" width="196" height="50" rx="10"/>
+      <rect x="10" y="7" width="36" height="36" rx="9" fill="rgba(251,113,133,0.16)"/>
+      <use href="#ic-gauge" x="18" y="15" width="20" height="20" color="#FDA4AF"/>
+      <text class="card-title" x="56" y="24">Painel de observ.</text>
+      <text class="card-sub" x="56" y="38">status · custo · maturidade</text>
+    </g>
+  </g>
+
+  <!-- ======================= setas de fluxo principal ======================= -->
+  <path d="M226 165 248 165" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+  <path d="M226 225 248 199" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+  <path d="M226 285 248 233" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+  <path d="M226 345 248 267" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+
+  <path d="M456 165 494 165" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+  <text class="flow-label" x="465" y="158">indexa</text>
+
+  <path d="M682 165 C 690 165, 700 195, 716 219" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+  <text class="flow-label" x="672" y="185">RAG (busca)</text>
+
+  <path d="M982 369 L1000 369 L1000 165 L1010 165" stroke="#12d393" stroke-width="1.8" fill="none"
+        stroke-linejoin="round" marker-end="url(#arrow)"/>
+  <text class="flow-label" x="1004" y="270" transform="rotate(-90 1004 270)" text-anchor="middle">parecer</text>
+
+  <path d="M1198 165 1232 165" stroke="#12d393" stroke-width="1.8" marker-end="url(#arrow)" fill="none"/>
+
+  <!-- leitura direta Armazenamento -> API, contornando a lane de IA por baixo -->
+  <path d="M682 225 L750 225 L750 500 L988 500 L988 250 L1010 250"
+        stroke="#5b6478" stroke-width="1.6" stroke-dasharray="4 4" fill="none"
+        stroke-linejoin="round" marker-end="url(#arrow-d)"/>
+  <text class="flow-label" x="875" y="493" text-anchor="middle" fill="#8f99ab">leitura direta: Anexos, IPI, SKUs (sem IA)</text>
+
+  <!-- ======================= legenda ======================= -->
+  <g transform="translate(30,700)">
+    <line x1="0" y1="0" x2="26" y2="0" stroke="#12d393" stroke-width="2"/>
+    <text x="34" y="4" font-size="11" fill="#55628a">fluxo principal (dado real trafegando)</text>
+    <line x1="330" y1="0" x2="356" y2="0" stroke="#8a97b8" stroke-width="2" stroke-dasharray="4 3"/>
+    <text x="364" y="4" font-size="11" fill="#55628a">leitura direta, fora do caminho de IA</text>
+  </g>
+  <text x="1450" y="748" font-size="9.5" fill="#a3add0" text-anchor="end">taxreformai · docs/arquitetura</text>
+</svg>
