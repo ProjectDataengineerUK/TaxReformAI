@@ -1,6 +1,6 @@
 const ESTATISTICAS = [
   { numero: "24", rotulo: "features em produção" },
-  { numero: "600+", rotulo: "testes automatizados" },
+  { numero: "700+", rotulo: "testes automatizados" },
   { numero: "5", rotulo: "agentes de IA na orquestração" },
   { numero: "6.866", rotulo: "trechos de legislação indexados" },
   { numero: "4", rotulo: "fontes legais oficiais" },

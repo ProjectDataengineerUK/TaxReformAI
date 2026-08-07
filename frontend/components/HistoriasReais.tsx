@@ -106,6 +106,23 @@ const HISTORIAS: Historia[] = [
     licao:
       "Observabilidade não é sobre nunca ter problema — é sobre parar de descobrir o problema só quando o cliente reclama.",
   },
+  {
+    tag: "Prevenção, não remendo",
+    titulo: "Investigar o pior cenário antes de escrever a primeira linha",
+    texto:
+      "Um pedido de usuário aparentemente simples — \"por que não existe uma tabela comparando o regime atual com o novo?\" — cresceu, pergunta a pergunta, até exigir que um endpoint conversacional inteiro aceitasse itens estruturados em vez de um valor único. Antes de desenhar qualquer schema novo, a sessão investigou a suposição mais arriscada: um guardrail de segurança que verificava um resultado só teria que lidar, de repente, com múltiplos itens — e um LLM pedido para citar a fundamentação de cada um, um por um, tende a resumir em vez de listar, quebrando o próprio guardrail.",
+    licao:
+      "A correção não foi depois do incidente — foi antes da primeira linha de código. O guardrail foi redesenhado para verificar só totais agregados, nunca item por item, prevenindo em arquitetura um problema que só apareceria em produção meses depois.",
+  },
+  {
+    tag: "Verde localmente, vermelho em produção",
+    titulo: "664 testes passando não bastam quando o teste real vive em outro arquivo",
+    texto:
+      "Uma mudança deliberada e documentada — trocar um campo de valor único por uma lista de itens — passou por 664 testes automatizados sem nenhuma falha. No primeiro deploy real, a verificação de fumaça (smoke test) do próprio pipeline de publicação reprovou: um script de shell, fora da suíte de testes, ainda mandava o formato antigo para a API, e recebeu de volta exatamente o erro que deveria — a API recusou o dado incompleto em vez de aceitar silenciosamente.",
+    numeros: "664 testes verdes localmente, 1 verificação de produção vermelha.",
+    licao:
+      "Um teste automatizado só protege o que ele testa. Um smoke test de deploy é código também — e mudar o contrato de um endpoint sem revisar quem mais o chama é uma classe de erro que nenhuma suíte unitária enxerga sozinha.",
+  },
 ];
 
 export function HistoriasReais() {
