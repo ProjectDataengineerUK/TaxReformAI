@@ -1,3 +1,4 @@
+import logging
 import re
 from decimal import Decimal
 
@@ -5,6 +6,8 @@ from api.schemas_simulate import RegimeVigenteResumo
 from orquestracao.dependencias import DependenciasOrquestracao
 from orquestracao.estado import State
 from orquestracao.llm.cliente import MODELO_SONNET
+
+logger = logging.getLogger("orquestracao.nos.sintetizador")
 
 
 class LLMRespostaInconsistenteError(Exception):
@@ -148,6 +151,18 @@ def no_sintetizador(state: State, deps: DependenciasOrquestracao) -> State:
         ausentes.append("fonte_legal_fase")
 
     if ausentes:
+        # Nunca contém PII: o prompt do sintetizador nunca inclui
+        # texto_mascarado/texto_consulta, só valores já calculados e fontes
+        # recuperadas da legislação — seguro para Cloud Logging, e essencial
+        # para diagnosticar POR QUE o Sonnet não reproduziu um campo (achado
+        # real: sem isto, o guardrail só dizia QUAIS campos faltavam, nunca
+        # o texto de verdade gerado).
+        logger.warning(
+            "Guardrail do sintetizador rejeitou o parecer — campos ausentes: %s. "
+            "Texto gerado: %r",
+            ", ".join(ausentes),
+            resposta,
+        )
         raise LLMRespostaInconsistenteError(
             f"Parecer gerado não reproduz os campos calculados: {', '.join(ausentes)}"
         )
